@@ -115,9 +115,44 @@ NPM posílá `Host` i `X-Forwarded-Proto` sám. Když access list s basic auth v
 `403 Forbidden` / `openresty`), přidej mu v záložce **Access** pravidlo `allow` → `all`.
 „Satisfy Any“ nech vypnuté, jinak by stránka šla otevřít i bez hesla.
 
-## 4. První spuštění
+## 4. Přihlášení přes Google a Mapy.com
 
-1. Dokonči kroky 1–3, potom mergni PR do `master`. Workflow image sestaví, publikuje a nasadí.
+Aplikace se přihlašuje Google účtem (ADR 0008). Vzdálenosti pro cestovné počítá přes Mapy.com
+(PDR 0003). Obojí se nastavuje v `/opt/cbf-ref/.env` a změna se projeví po
+`docker compose up -d app`.
+
+**Google OAuth** ([console.cloud.google.com](https://console.cloud.google.com)):
+
+1. Založ projekt (např. „cbf-ref“).
+2. _APIs & Services → OAuth consent screen_ (v novém rozhraní _Google Auth Platform_):
+   - typ **External**, název aplikace, support e-mail, autorizovaná doména (tvoje doména),
+   - scopes stačí `openid`, `email`, `profile`,
+   - aplikaci přepni na **In production**. S těmito základními scopes to nepotřebuje ověření
+     Googlem a přihlásit se může kdokoli s Google účtem.
+3. _Credentials → Create credentials → OAuth client ID_:
+   - typ **Web application**,
+   - _Authorized redirect URIs_: `https://<tvoje doména>/login/google/callback`.
+4. Do `.env` dej `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` a `ADMIN_EMAILS=<tvůj Google e-mail>`.
+
+Adresa pro návrat se skládá z hlaviček `Host` a `X-Forwarded-Proto`. Musí tedy přesně sedět
+s doménou, na které aplikace běží za proxy.
+
+**Mapy.com** ([developer.mapy.com](https://developer.mapy.com)): zaregistruj se, založ projekt a
+vytvoř API klíč. Do `.env` ho dej jako `MAPY_API_KEY`. Volá se jen ze serveru a trasy se
+ukládají do DB, takže na tarif zdarma to stačí. Bez klíče nefunguje vyhledávání adres a vzdálenosti
+se jen odhadují vzdušnou čarou (označené ≈).
+
+**Účty:** kdo se přihlásí poprvé, vybere si svůj záznam rozhodčího a čeká. Správci (e-maily z
+`ADMIN_EMAILS`) žádosti schvalují na stránce **Účty**, kde můžou spárovat i s jiným ID nebo
+spárování zrušit. Správce se při výběru svého záznamu schválí sám. Basic auth v NPM teď už není
+nutný, ale nevadí.
+
+Migrace `0002` smaže staré účty bez hesla a jejich session. Po nasazení se znovu přihlas přes
+Google.
+
+## 5. První spuštění
+
+1. Dokonči kroky 1–4, potom mergni PR do `master`. Workflow image sestaví, publikuje a nasadí.
    Průběh uvidíš v Actions, na VPS přes `docker compose ps` v `/opt/cbf-ref`.
 2. Ověř stav:
 
@@ -146,7 +181,10 @@ NPM posílá `Host` i `X-Forwarded-Proto` sám. Když access list s basic auth v
    ssh -L 15672:127.0.0.1:15672 deploy@<vps>             # pak http://localhost:15672 (cbf / heslo z .env)
    ```
 
-5. Přihlášení: otevři svou doménu, projdi basic auth, vyhledej se a klikni „To jsem já“.
+5. Přihlášení: otevři svou doménu, přihlas se přes Google, vyhledej se a klikni „To jsem já“.
+   Jako správce se schválíš sám. V **Profilu** nastav bydliště a v **Cestách a náhradách**
+   nech spočítat sezónu.
+
    Rozhodčí jsou jen v detailech zápasů. Najdeš se tedy až po stažení aktuální sezóny (první
    hodiny), starší zápasy přibývají s bootstrapem.
 

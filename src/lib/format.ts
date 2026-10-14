@@ -18,6 +18,24 @@ const dateOnly = new Intl.DateTimeFormat('cs-CZ', {
 
 const number = new Intl.NumberFormat('cs-CZ');
 
+const timeOnly = new Intl.DateTimeFormat('cs-CZ', {
+	hour: '2-digit',
+	minute: '2-digit',
+	timeZone: 'Europe/Prague'
+});
+
+/** "18:00" in Europe/Prague. */
+export function formatTime(startsAt: Date | string | null) {
+	return startsAt ? timeOnly.format(new Date(startsAt)) : '';
+}
+
+/** "2 h 15 min" */
+export function formatDuration(minutes: number) {
+	const h = Math.floor(minutes / 60);
+	const m = Math.round(minutes % 60);
+	return h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`;
+}
+
 /** Start of a game in Europe/Prague; falls back to the bare date when the time is unknown. */
 export function formatGameStart(startsAt: Date | string | null, scheduledDate: string | null) {
 	if (startsAt) return dateTime.format(new Date(startsAt));

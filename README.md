@@ -81,6 +81,21 @@ Hlavní zvláštnosti exportu:
 Za HTTP proxy (např. cloudový sandbox) potřebuje Node `fetch` proměnnou `NODE_USE_ENV_PROXY=1`
 (Node ≥ 22.21).
 
+## Aplikace
+
+- **Přihlášení** přes Google (ADR 0008). Účet se spáruje se záznamem rozhodčího po schválení
+  správcem (`/admin`).
+- **Přehled** (`/dashboard`): zápasy v čase, odměny za řízení podle sazebníků (PDR 0002) a součty
+  náhrad.
+- **Cesty a náhrady** (`/trips`): cestovné, stravné a náhrada za všední den po dnech (PDR 0003).
+  Průvodce ke každému dni zaznamená, kde jsi nabral a vysadil kolegy. Vzdálenosti počítá
+  Mapy.com.
+- **Profil** (`/profile`): bydliště a uložená místa.
+
+Lokálně potřebuješ `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (redirect
+`http://localhost:5173/login/google/callback`) a svůj e-mail v `ADMIN_EMAILS`. `MAPY_API_KEY` je
+volitelný.
+
 ## Nasazení
 
 Produkce běží v Dockeru na VPS. Jeden image slouží pro web, worker, scheduler i migrace. Push do

@@ -1,12 +1,13 @@
 /**
- * Minimal server-side sessions (ADR 0006): a random token in an httpOnly cookie, its SHA-256 in
- * `app.session`. Login = the referee picks their official record (PDR 0001), no password yet.
+ * Server-side sessions (ADR 0006): a random token in an httpOnly cookie, its SHA-256 in
+ * `app.session`. Accounts sign in with Google and are paired with an official by an admin
+ * (ADR 0008).
  */
 import { createHash, randomBytes } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
 import { eq, sql } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client';
-import { appSession, appUser, official } from '../db/schema';
+import { appSession, appUser, official, type UserRole, type UserStatus } from '../db/schema';
 
 export const SESSION_COOKIE = 'cbf_session';
 
@@ -17,10 +18,22 @@ const RENEW_WITHIN_MS = 15 * DAY;
 
 export interface SessionUser {
 	id: number;
-	officialId: number;
+	email: string;
+	name: string | null;
+	avatarUrl: string | null;
+	role: UserRole;
+	status: UserStatus;
+	/** approved pairing; null until an admin approves */
+	officialId: number | null;
+	requestedOfficialId: number | null;
+	/** of the approved official */
 	groupId: number | null;
 	firstName: string | null;
 	lastName: string | null;
+	homeAddress: string | null;
+	homeLat: number | null;
+	homeLon: number | null;
+	homeMunicipality: string | null;
 }
 
 export interface SessionInfo {
@@ -40,16 +53,11 @@ export function shouldRenew(expiresAt: Date, now: Date): boolean {
 	return expiresAt.getTime() - now.getTime() < RENEW_WITHIN_MS;
 }
 
-/** Pairs the visitor with an official (creating the user on first login) and opens a session. */
-export async function pairAndCreateSession(db: DbOrTx, officialId: number, now = new Date()) {
-	const [user] = await db
-		.insert(appUser)
-		.values({ officialId, lastLoginAt: now })
-		.onConflictDoUpdate({ target: appUser.officialId, set: { lastLoginAt: now } })
-		.returning({ id: appUser.id });
+/** Opens a session for a signed-in user. */
+export async function createSession(db: DbOrTx, userId: number, now = new Date()) {
 	const token = generateSessionToken();
 	const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
-	await db.insert(appSession).values({ id: sessionIdFromToken(token), userId: user.id, expiresAt });
+	await db.insert(appSession).values({ id: sessionIdFromToken(token), userId, expiresAt });
 	return { token, expiresAt };
 }
 
@@ -63,15 +71,27 @@ export async function validateSessionToken(
 	const [row] = await db
 		.select({
 			expiresAt: appSession.expiresAt,
-			userId: appUser.id,
-			officialId: appUser.officialId,
-			groupId: official.groupId,
-			firstName: official.firstName,
-			lastName: official.lastName
+			user: {
+				id: appUser.id,
+				email: appUser.email,
+				name: appUser.name,
+				avatarUrl: appUser.avatarUrl,
+				role: appUser.role,
+				status: appUser.status,
+				officialId: appUser.officialId,
+				requestedOfficialId: appUser.requestedOfficialId,
+				groupId: official.groupId,
+				firstName: official.firstName,
+				lastName: official.lastName,
+				homeAddress: appUser.homeAddress,
+				homeLat: appUser.homeLat,
+				homeLon: appUser.homeLon,
+				homeMunicipality: appUser.homeMunicipality
+			}
 		})
 		.from(appSession)
 		.innerJoin(appUser, eq(appUser.id, appSession.userId))
-		.innerJoin(official, eq(official.id, appUser.officialId))
+		.leftJoin(official, eq(official.id, appUser.officialId))
 		.where(eq(appSession.id, id));
 	if (!row) return null;
 	if (row.expiresAt.getTime() <= now.getTime()) {
@@ -85,13 +105,7 @@ export async function validateSessionToken(
 		await db.update(appSession).set({ expiresAt }).where(eq(appSession.id, id));
 	}
 	return {
-		user: {
-			id: row.userId,
-			officialId: row.officialId,
-			groupId: row.groupId,
-			firstName: row.firstName,
-			lastName: row.lastName
-		},
+		user: row.user,
 		session: { id, expiresAt },
 		renewed
 	};

@@ -47,14 +47,15 @@ retry curl --fail --silent "$base/healthz"
 curl --fail --silent "$base/healthz" | grep -q '"ok":true'
 curl --fail --silent -H 'X-Forwarded-Proto: https' "$base/login?q=smoke" | grep -q 'Přihlášení rozhodčího'
 
-post_login() {
+# a form action (logout): cross-origin posts must be refused by SvelteKit's origin check
+post_form() {
 	curl --silent --output /dev/null --write-out '%{http_code}' -H 'X-Forwarded-Proto: https' \
 		-H "Origin: $1" -H 'Content-Type: application/x-www-form-urlencoded' \
-		--data 'officialId=1' "$base/login"
+		--data 'x=1' "$base/logout"
 }
-cross=$(post_login https://evil.example)
-same=$(post_login "https://127.0.0.1:$port")
-echo "login POST: cross-origin $cross, same-origin $same"
+cross=$(post_form https://evil.example)
+same=$(post_form "https://127.0.0.1:$port")
+echo "form POST: cross-origin $cross, same-origin $same"
 [ "$cross" = 403 ]
 [ "$same" != 403 ] && [ "$same" -lt 500 ]
 

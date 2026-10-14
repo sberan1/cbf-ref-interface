@@ -1,96 +1,55 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import type { PageProps } from './$types';
 
-	let { data, form }: PageProps = $props();
-
-	const formatDate = (iso: string | null) =>
-		iso ? new Date(`${iso}T12:00:00Z`).toLocaleDateString('cs-CZ') : '—';
-
-	type Candidate = PageProps['data']['results'][number];
-
-	/** "ID 58712 · kanonické ID 650 · 21 zápasů jako komisař · naposledy 25. 10. 2026" */
-	function describe(r: Candidate): string {
-		const roles =
-			r.refereeGames && r.commissionerGames
-				? ` (${r.refereeGames} rozhodčí, ${r.commissionerGames} komisař)`
-				: r.commissionerGames
-					? ' jako komisař'
-					: '';
-		return [
-			`ID ${r.id}`,
-			r.groupId && r.groupId !== r.id ? `kanonické ID ${r.groupId}` : null,
-			`${r.games} ${r.games === 1 ? 'zápas' : r.games >= 2 && r.games <= 4 ? 'zápasy' : 'zápasů'}${roles}`,
-			`naposledy ${formatDate(r.lastGameDate)}`
-		]
-			.filter(Boolean)
-			.join(' · ');
-	}
+	let { data }: PageProps = $props();
 </script>
 
 <svelte:head>
 	<title>Přihlášení – Rozhodčí ČBF</title>
 </svelte:head>
 
-<div class="mx-auto max-w-2xl">
+<div class="mx-auto max-w-md">
 	<h1 class="text-2xl font-semibold tracking-tight">Přihlášení rozhodčího</h1>
 	<p class="mt-2 text-sm text-ink-2">
-		Najděte se podle jména nebo ID z ČBF a vyberte svůj záznam. Účet se tím spáruje s daným
-		rozhodčím.
+		Přihlas se svým Google účtem. Při prvním přihlášení si vybereš svůj záznam rozhodčího z ČBF a
+		správce tvůj účet schválí. Potom uvidíš své zápasy, odměny a náhrady.
 	</p>
 
-	<form method="GET" class="mt-6 flex gap-2" role="search">
-		<label for="q" class="sr-only">Jméno nebo ID rozhodčího</label>
-		<input
-			id="q"
-			name="q"
-			type="search"
-			value={data.q}
-			minlength="2"
-			placeholder="např. Novák nebo 53310"
-			autocomplete="off"
-			class="w-full rounded-md border-line bg-surface text-ink placeholder:text-muted focus:border-accent focus:ring-accent"
-		/>
-		<button
-			type="submit"
-			class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-ink hover:opacity-90"
+	{#if data.error}
+		<p class="mt-4 text-sm text-danger" role="alert">{data.error}</p>
+	{/if}
+
+	{#if data.configured}
+		<a
+			href={resolve('/login/google')}
+			data-sveltekit-reload
+			class="mt-6 inline-flex items-center gap-3 rounded-md border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink shadow-sm hover:border-accent"
 		>
-			Hledat
-		</button>
-	</form>
-
-	{#if form?.error}
-		<p class="mt-4 text-sm text-danger" role="alert">{form.error}</p>
+			<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+				<path
+					fill="#FFC107"
+					d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"
+				/>
+				<path
+					fill="#FF3D00"
+					d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"
+				/>
+				<path
+					fill="#4CAF50"
+					d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"
+				/>
+				<path
+					fill="#1976D2"
+					d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"
+				/>
+			</svg>
+			Přihlásit se přes Google
+		</a>
+	{:else}
+		<p class="mt-6 rounded-md border border-line bg-surface px-4 py-3 text-sm text-ink-2">
+			Přihlášení přes Google zatím není na serveru nastavené (chybí <code>GOOGLE_CLIENT_ID</code> a
+			<code>GOOGLE_CLIENT_SECRET</code>).
+		</p>
 	{/if}
-
-	{#if data.q.trim().length >= 2}
-		{#if data.results.length === 0}
-			<p class="mt-6 text-sm text-ink-2">Nikdo takový v datech není. Zkuste jiný tvar jména.</p>
-		{:else}
-			<ul class="mt-6 divide-y divide-line rounded-lg border border-line bg-surface">
-				{#each data.results as r (r.id)}
-					<li class="flex items-center justify-between gap-4 px-4 py-3">
-						<div class="min-w-0">
-							<p class="font-medium">{r.firstName} {r.lastName}</p>
-							<p class="text-xs text-muted">
-								{describe(r)}
-							</p>
-						</div>
-						<form method="POST">
-							<input type="hidden" name="officialId" value={r.id} />
-							<button
-								type="submit"
-								class="shrink-0 rounded-md border border-line px-3 py-1.5 text-sm font-medium hover:border-accent hover:text-accent"
-							>
-								To jsem já
-							</button>
-						</form>
-					</li>
-				{/each}
-			</ul>
-		{/if}
-	{/if}
-
-	<p class="mt-8 text-xs text-muted">
-		Přihlášení je zatím bez hesla a slouží jen pro interní použití.
-	</p>
 </div>
