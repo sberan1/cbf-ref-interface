@@ -53,8 +53,9 @@
 						{/if}
 					</p>
 					<p class="mt-0.5 text-xs text-ink-2">
-						{g.competitionName ?? 'neznámá soutěž'}{#if g.venue || g.city}
-							· {[g.venue, g.city].filter(Boolean).join(', ')}{/if}
+						{[g.competitionName ?? 'neznámá soutěž', [g.venue, g.city].filter(Boolean).join(', ')]
+							.filter(Boolean)
+							.join(' · ')}
 					</p>
 					{#if g.colleagues}
 						<p class="mt-0.5 text-xs text-muted">s: {g.colleagues}</p>

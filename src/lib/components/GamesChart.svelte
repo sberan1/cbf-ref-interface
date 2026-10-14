@@ -13,7 +13,8 @@
 	const innerH = height - margin.top - margin.bottom;
 	const GAP = 2; // surface gap between stacked segments
 
-	let width = $state(720);
+	// 0 until measured on the client: the plot is drawn only at its real width (no layout jump)
+	let width = $state(0);
 	let hovered = $state<number | null>(null);
 
 	function niceTicks(max: number): number[] {
@@ -71,15 +72,19 @@
 		})
 	);
 
+	/** Tooltip beside the hovered column (right of it, or left near the right edge), inside the plot. */
 	const tooltip = $derived.by(() => {
 		if (hovered === null || !columns[hovered]) return null;
 		const c = columns[hovered];
 		const center = margin.left + band * (hovered + 0.5);
+		const onRight = center + band / 2 + 180 < width;
+		const offset = Math.max(barW / 2 + 6, 8);
 		return {
 			bucket: c.bucket,
 			total: c.total,
-			left: Math.min(Math.max(center, 80), Math.max(80, width - 80)),
-			top: margin.top + y(c.total) - 8
+			onRight,
+			left: onRight ? center + offset : center - offset,
+			top: margin.top
 		};
 	});
 
@@ -105,13 +110,15 @@
 				<svg width="10" height="10" aria-hidden="true"
 					><rect width="10" height="10" rx="2" class="fill-referee" opacity="0.4" /></svg
 				>
-				světlejší = nadcházející delegace
+				tlumeně = nadcházející delegace
 			</li>
 		{/if}
 	</ul>
 
 	{#if buckets.length === 0}
 		<p class="py-12 text-center text-sm text-muted">Pro toto období nejsou žádné zápasy.</p>
+	{:else if width === 0}
+		<div style:height={`${height}px`}></div>
 	{:else}
 		<div class="relative">
 			<svg
@@ -181,7 +188,10 @@
 
 			{#if tooltip}
 				<div
-					class="pointer-events-none absolute z-10 min-w-36 -translate-x-1/2 -translate-y-full rounded-md border border-line bg-surface px-3 py-2 text-xs shadow-md"
+					class={[
+						'pointer-events-none absolute z-10 min-w-36 rounded-md border border-line bg-surface px-3 py-2 text-xs shadow-md',
+						!tooltip.onRight && '-translate-x-full'
+					]}
 					style:left={`${tooltip.left}px`}
 					style:top={`${tooltip.top}px`}
 				>

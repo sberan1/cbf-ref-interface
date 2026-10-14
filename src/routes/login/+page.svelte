@@ -5,6 +5,26 @@
 
 	const formatDate = (iso: string | null) =>
 		iso ? new Date(`${iso}T12:00:00Z`).toLocaleDateString('cs-CZ') : '—';
+
+	type Candidate = PageProps['data']['results'][number];
+
+	/** "ID 58712 · kanonické ID 650 · 21 zápasů jako komisař · naposledy 25. 10. 2026" */
+	function describe(r: Candidate): string {
+		const roles =
+			r.refereeGames && r.commissionerGames
+				? ` (${r.refereeGames} rozhodčí, ${r.commissionerGames} komisař)`
+				: r.commissionerGames
+					? ' jako komisař'
+					: '';
+		return [
+			`ID ${r.id}`,
+			r.groupId && r.groupId !== r.id ? `kanonické ID ${r.groupId}` : null,
+			`${r.games} ${r.games === 1 ? 'zápas' : r.games >= 2 && r.games <= 4 ? 'zápasy' : 'zápasů'}${roles}`,
+			`naposledy ${formatDate(r.lastGameDate)}`
+		]
+			.filter(Boolean)
+			.join(' · ');
+	}
 </script>
 
 <svelte:head>
@@ -52,12 +72,7 @@
 						<div class="min-w-0">
 							<p class="font-medium">{r.firstName} {r.lastName}</p>
 							<p class="text-xs text-muted">
-								ID {r.id}{#if r.groupId && r.groupId !== r.id}
-									· kanonické ID {r.groupId}{/if}
-								· {r.games} zápasů{#if r.refereeGames && r.commissionerGames}
-									({r.refereeGames} rozhodčí, {r.commissionerGames} komisař){:else if r.commissionerGames}
-									jako komisař{/if}
-								· naposledy {formatDate(r.lastGameDate)}
+								{describe(r)}
 							</p>
 						</div>
 						<form method="POST">

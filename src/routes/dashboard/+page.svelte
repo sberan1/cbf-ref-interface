@@ -67,7 +67,7 @@
 				{#each views as v (v.key)}
 					<a
 						href={resolve(`/dashboard?g=${v.key}`)}
-						data-sveltekit-noscroll
+						data-sveltekit-reset="false"
 						aria-current={data.granularity === v.key ? 'page' : undefined}
 						class={[
 							'rounded px-3 py-1.5',
