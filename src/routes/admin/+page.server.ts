@@ -7,6 +7,7 @@ import {
 } from '#lib/server/auth/accounts.ts';
 import { requireAdmin } from '#lib/server/auth/guards.ts';
 import { getDb } from '#lib/server/db/index.ts';
+import { log } from '#lib/server/log.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -30,6 +31,12 @@ function decide(decision: ReviewDecision) {
 			if (err instanceof PairingError) return fail(400, { userId, error: err.message });
 			throw err;
 		}
+		log.info('account review', {
+			adminId: admin.id,
+			userId,
+			decision,
+			officialId: officialId ?? null
+		});
 		return { userId, done: decision };
 	};
 }

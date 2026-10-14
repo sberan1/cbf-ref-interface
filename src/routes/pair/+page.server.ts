@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { PairingError, requestPairing } from '#lib/server/auth/accounts.ts';
 import { landingPath, requireUser } from '#lib/server/auth/guards.ts';
 import { getDb } from '#lib/server/db/index.ts';
+import { log } from '#lib/server/log.ts';
 import { searchOfficials } from '#lib/server/referee/queries.ts';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -29,6 +30,7 @@ export const actions: Actions = {
 			if (err instanceof PairingError) return fail(400, { error: err.message });
 			throw err;
 		}
+		log.info('pairing requested', { userId: user.id, officialId });
 		redirect(303, user.role === 'admin' ? '/dashboard' : '/pending');
 	}
 };

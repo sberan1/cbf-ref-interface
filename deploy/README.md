@@ -150,9 +150,43 @@ nutný, ale nevadí.
 Migrace `0002` smaže staré účty bez hesla a jejich session. Po nasazení se znovu přihlas přes
 Google.
 
-## 5. První spuštění
+## 5. Logy v Graylogu
 
-1. Dokonči kroky 1–4, potom mergni PR do `master`. Workflow image sestaví, publikuje a nasadí.
+Všechny služby aplikace (app, worker, scheduler, migrace, Postgres, RabbitMQ) posílají logy přes
+GELF do **Graylogu**, který běží ve stejném compose (MongoDB + OpenSearch + Graylog, ADR 0009).
+`docker compose logs` funguje dál. Při prvním startu služba `graylog-setup` sama založí vstup
+„GELF UDP (docker)“ a extraktor, který z JSON logů aplikace udělá pole s prefixem `app_`
+(`app_msg`, `app_level`, `app_path`, `app_status`, `app_ms`, `app_userId`, `app_err`…).
+
+**Před merge** přidej do `/opt/cbf-ref/.env` (jinak `docker compose` odmítne start):
+
+```sh
+cd /opt/cbf-ref
+echo "GRAYLOG_ROOT_PASSWORD=$(openssl rand -hex 16)" >> .env
+echo "GRAYLOG_PASSWORD_SECRET=$(openssl rand -hex 48)" >> .env
+echo "GRAYLOG_EXTERNAL_URI=https://logs.<tvoje doména>/" >> .env
+# OpenSearch chce víc memory map oblastí (doporučené, natrvalo):
+echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-opensearch.conf && sudo sysctl --system
+```
+
+- **Paměť:** celý logovací stack si vezme zhruba 2,5–3 GB RAM. OpenSearch heap nastavíš přes
+  `OPENSEARCH_HEAP` (výchozí `1g`).
+- **Web UI:** Graylog je v síti proxy jako `cbf-ref-graylog:9000`. V NPM přidej proxy host
+  (např. `logs.<doména>`) s Forward Hostname `cbf-ref-graylog`, port `9000`, scheme `http`. Přihlášení je `admin` a heslo z `GRAYLOG_ROOT_PASSWORD`. Bez proxy přes
+  SSH tunel: `ssh -L 9000:127.0.0.1:9000 deploy@<vps>`, pak `http://localhost:9000`.
+- **Hledání:**
+  - `app_msg:request AND app_status:>=500`: chyby webu.
+  - `app_msg:"unhandled error"`: výjimky se stackem.
+  - `container_name:cbf-ref-worker-1 AND app_level:(warn OR error)`: problémy stahování.
+  - `app_msg:"account review"`: rozhodnutí o účtech.
+- **Retence:** výchozí index set Graylogu (rotace a mazání starých indexů). Nastavíš ji v
+  _System → Indices_. Data jsou ve volumes `opensearchdata`, `mongodata` a `graylogdata`.
+- Když logovací stack neběží, aplikace funguje dál: Docker posílá GELF přes UDP a deploy na
+  zdraví Graylogu nečeká.
+
+## 6. První spuštění
+
+1. Dokonči kroky 1–5, potom mergni PR do `master`. Workflow image sestaví, publikuje a nasadí.
    Průběh uvidíš v Actions, na VPS přes `docker compose ps` v `/opt/cbf-ref`.
 2. Ověř stav:
 
@@ -190,7 +224,7 @@ Google.
 
 ## Provoz
 
-- **Logy:** `docker compose logs -f app worker scheduler`. Rotují se (5 × 10 MB na kontejner).
+- **Logy:** v Graylogu (krok 5), nebo `docker compose logs -f app worker scheduler`.
 - **Ruční příkazy syncu:** `docker compose exec worker node dist/cbf.js help`, kompletní přehled
   je v hlavním README.
 - **Rollback:** `IMAGE_TAG=<commit sha> docker compose up -d` (image posledních 14 dní zůstávají

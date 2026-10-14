@@ -1,7 +1,7 @@
 /**
  * Travel and meal allowances (PDR 0003), from the "Náhrada cestovních výdajů a stravné" chapter
  * of the fee overviews. Mileage and the weekday supplement follow the season's overview; the
- * meal allowance follows the government decree in force on the trip date (calendar year).
+ * meal allowance follows the MPSV decree in force on the trip date.
  */
 import type { Provenance } from '../fees/schedules';
 
@@ -64,21 +64,85 @@ export interface MealRates {
 	tiers: { hours: number; amount: number }[];
 }
 
+/**
+ * Minimum domestic meal allowance for private-sector employers (§ 163 zákoníku práce), as the
+ * overviews quote it: MPSV decrees per calendar year, mid-2022 raise included.
+ */
 export const mealRates: MealRates[] = [
 	{
 		validFrom: '2017-01-01',
-		provenance: 'assumed',
-		source: 'předpoklad: stejné jako 2023',
+		provenance: 'document',
+		source: 'vyhláška MPSV č. 440/2016 Sb.',
 		tiers: [
-			{ hours: 5, amount: 129 },
-			{ hours: 12, amount: 196 },
-			{ hours: 18, amount: 307 }
+			{ hours: 5, amount: 72 },
+			{ hours: 12, amount: 109 },
+			{ hours: 18, amount: 171 }
+		]
+	},
+	{
+		validFrom: '2018-01-01',
+		provenance: 'document',
+		source: 'vyhláška MPSV č. 463/2017 Sb.',
+		tiers: [
+			{ hours: 5, amount: 78 },
+			{ hours: 12, amount: 119 },
+			{ hours: 18, amount: 186 }
+		]
+	},
+	{
+		validFrom: '2019-01-01',
+		provenance: 'document',
+		source: 'vyhláška MPSV č. 333/2018 Sb.',
+		tiers: [
+			{ hours: 5, amount: 82 },
+			{ hours: 12, amount: 124 },
+			{ hours: 18, amount: 195 }
+		]
+	},
+	{
+		validFrom: '2020-01-01',
+		provenance: 'document',
+		source: 'vyhláška MPSV č. 358/2019 Sb.',
+		tiers: [
+			{ hours: 5, amount: 87 },
+			{ hours: 12, amount: 131 },
+			{ hours: 18, amount: 206 }
+		]
+	},
+	{
+		validFrom: '2021-01-01',
+		provenance: 'document',
+		source: 'vyhláška MPSV č. 589/2020 Sb.',
+		tiers: [
+			{ hours: 5, amount: 91 },
+			{ hours: 12, amount: 138 },
+			{ hours: 18, amount: 217 }
+		]
+	},
+	{
+		validFrom: '2022-01-01',
+		provenance: 'document',
+		source: 'vyhláška MPSV č. 511/2021 Sb.',
+		tiers: [
+			{ hours: 5, amount: 99 },
+			{ hours: 12, amount: 151 },
+			{ hours: 18, amount: 237 }
+		]
+	},
+	{
+		validFrom: '2022-08-20',
+		provenance: 'document',
+		source: 'vyhláška MPSV č. 237/2022 Sb. (od 20. 8. 2022)',
+		tiers: [
+			{ hours: 5, amount: 120 },
+			{ hours: 12, amount: 181 },
+			{ hours: 18, amount: 284 }
 		]
 	},
 	{
 		validFrom: '2023-01-01',
 		provenance: 'document',
-		source: 'Přehled odměn rozhodčích 2023/24',
+		source: 'Přehled odměn rozhodčích 2023/24 (vyhláška pro rok 2023)',
 		tiers: [
 			{ hours: 5, amount: 129 },
 			{ hours: 12, amount: 196 },
@@ -87,8 +151,8 @@ export const mealRates: MealRates[] = [
 	},
 	{
 		validFrom: '2024-01-01',
-		provenance: 'assumed',
-		source: 'vyhláška MPSV pro rok 2024 (v přehledech není)',
+		provenance: 'document',
+		source: 'vyhláška MPSV č. 398/2023 Sb.',
 		tiers: [
 			{ hours: 5, amount: 140 },
 			{ hours: 12, amount: 212 },
@@ -98,7 +162,7 @@ export const mealRates: MealRates[] = [
 	{
 		validFrom: '2025-01-01',
 		provenance: 'document',
-		source: 'Přehled odměn rozhodčích 2025/26',
+		source: 'Přehled odměn rozhodčích 2025/26 (vyhláška pro rok 2025)',
 		tiers: [
 			{ hours: 5, amount: 148 },
 			{ hours: 12, amount: 225 },
@@ -108,7 +172,7 @@ export const mealRates: MealRates[] = [
 	{
 		validFrom: '2026-01-01',
 		provenance: 'document',
-		source: 'Přehled odměn rozhodčích 2026/27',
+		source: 'Přehled odměn rozhodčích 2026/27, vyhláška MPSV č. 573/2025 Sb.',
 		tiers: [
 			{ hours: 5, amount: 155 },
 			{ hours: 12, amount: 236 },

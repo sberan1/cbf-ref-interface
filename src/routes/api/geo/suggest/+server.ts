@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { requireApproved } from '#lib/server/auth/guards.ts';
 import { getDb } from '#lib/server/db/index.ts';
+import { log } from '#lib/server/log.ts';
 import { getMaps } from '#lib/server/travel/service.ts';
 import type { RequestHandler } from './$types';
 
@@ -11,7 +12,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	try {
 		return json(await getMaps(getDb()).suggest(q));
 	} catch (err) {
-		console.warn('suggest failed', err instanceof Error ? err.message : err);
+		log.warn('mapy suggest failed', { err: err instanceof Error ? err.message : String(err) });
 		return json([]);
 	}
 };

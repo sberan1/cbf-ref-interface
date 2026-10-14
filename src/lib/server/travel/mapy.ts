@@ -7,6 +7,7 @@
 import { eq } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client';
 import { appGeoCache, appRouteCache } from '../db/schema';
+import { log } from '../log';
 
 export interface Point {
 	lat: number;
@@ -155,7 +156,9 @@ export function cachedMaps(db: DbOrTx, api: MapProvider | null): MapProvider & {
 			try {
 				result = api ? await api.route(from, to) : straightLineRoute(from, to);
 			} catch (err) {
-				console.warn('route fallback', err instanceof Error ? err.message : err);
+				log.warn('mapy route failed, straight-line fallback', {
+					err: err instanceof Error ? err.message : String(err)
+				});
 				result = straightLineRoute(from, to);
 			}
 			await db

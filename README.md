@@ -91,6 +91,8 @@ Za HTTP proxy (např. cloudový sandbox) potřebuje Node `fetch` proměnnou `NOD
   Průvodce ke každému dni zaznamená, kde jsi nabral a vysadil kolegy. Vzdálenosti počítá
   Mapy.com.
 - **Profil** (`/profile`): bydliště a uložená místa.
+- **Logy:** web, worker i scheduler píšou JSON řádky (`src/lib/server/log.ts`). Na VPS je
+  sbírá Graylog (ADR 0009).
 
 Lokálně potřebuješ `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (redirect
 `http://localhost:5173/login/google/callback`) a svůj e-mail v `ADMIN_EMAILS`. `MAPY_API_KEY` je

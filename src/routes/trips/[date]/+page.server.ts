@@ -3,6 +3,7 @@ import { and, asc, desc, eq, ne } from 'drizzle-orm';
 import { z } from 'zod';
 import { requireApproved } from '#lib/server/auth/guards.ts';
 import { getDb } from '#lib/server/db/index.ts';
+import { log } from '#lib/server/log.ts';
 import { appPlace, appTrip } from '#lib/server/db/schema/index.ts';
 import { personOfficialIds } from '#lib/server/referee/queries.ts';
 import { tripModes, tripStopSchema, type TripStop } from '#lib/server/travel/allowances.ts';
@@ -194,6 +195,7 @@ export const actions: Actions = {
 			extraCost: extraCost ?? null,
 			note: note ?? null
 		});
+		log.info('trip saved', { userId: user.id, date: row.day.date, mode, stops: resolved.length });
 		return { saved: true };
 	},
 
