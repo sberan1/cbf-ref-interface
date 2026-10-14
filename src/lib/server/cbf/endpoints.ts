@@ -1,7 +1,7 @@
 /**
- * Registry of ČBF export endpoints. Sources: https://cbf.cz.basketball/xml-exporty/p58 (v1) and the
- * public clients jknetl/CzechBasketballSchedule, ivosu/cbf_ical (v2). Live API not verified yet,
- * see docs/agent-context/history/20260923-analyza-cbf-exportu.md.
+ * Registry of ČBF export endpoints (v1: https://cbf.cz.basketball/xml-exporty/p58, v2: undocumented,
+ * known from public clients). Verified against the live API by discovery on 2026-10-14, see
+ * docs/agent-context/history/20261014-scaffold-cbf-ingestu.md.
  */
 export type Source = 'v1' | 'v2';
 
@@ -24,7 +24,7 @@ export type EndpointKey = (typeof endpointKeys)[number];
 export interface EndpointDef {
 	key: EndpointKey;
 	source: Source;
-	/** Path relative to CBF_BASE_URL (https://www.cbf.cz/xml/). */
+	/** Path relative to CBF_BASE_URL (https://cbf.cz/xml/). */
 	path: string;
 	/** Variable parameters, all required. */
 	params: readonly string[];

@@ -58,6 +58,7 @@ export class CbfHttpClient {
 		const elapsed = () => Date.now() - startedAt.getTime();
 
 		let response: Response;
+		let bytes: Uint8Array;
 		try {
 			response = await fetch(url, {
 				headers: {
@@ -66,6 +67,8 @@ export class CbfHttpClient {
 				},
 				signal: AbortSignal.timeout(this.config.timeoutMs)
 			});
+			// the body can stall or break too; it falls under the same timeout and classification
+			bytes = new Uint8Array(await response.arrayBuffer());
 		} catch (err) {
 			const timeout = err instanceof Error && err.name === 'TimeoutError';
 			throw new CbfHttpError(
@@ -75,9 +78,10 @@ export class CbfHttpClient {
 				startedAt,
 				elapsed()
 			);
+		} finally {
+			this.limiter.release();
 		}
 
-		const bytes = new Uint8Array(await response.arrayBuffer());
 		const contentType = response.headers.get('content-type');
 		const status = response.status;
 

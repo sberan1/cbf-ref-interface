@@ -37,24 +37,31 @@ export interface NormalizeContext {
 	currentYear: number;
 }
 
-export interface NormalizeOutcome {
-	/** Content-aware override of fetch_state.next_due_at (undefined = keep the default). */
-	nextDueAt?: Date | null;
+export interface RefreshContext {
+	task: NormalizeTask;
+	now: Date;
+	currentYear: number;
 }
 
 interface Normalizer<T> {
 	/** Bump when the mapping changes; payloads normalized by an older version get re-normalized. */
 	version: number;
 	parse(body: string, task: NormalizeTask): T;
-	write(ctx: NormalizeContext, data: T): Promise<NormalizeOutcome | void>;
+	write(ctx: NormalizeContext, data: T): Promise<void>;
 	children?(data: T, task: NormalizeTask): NewFetchTask[];
+	/**
+	 * Content-aware fetch_state.next_due_at (undefined = keep the default TTL). Evaluated after
+	 * every fetch, also when the content did not change.
+	 */
+	nextDueAt?(data: T, ctx: RefreshContext): Date | null | undefined;
 }
 
 export interface AnyNormalizer {
 	version: number;
 	parse(body: string, task: NormalizeTask): unknown;
-	write(ctx: NormalizeContext, data: unknown): Promise<NormalizeOutcome | void>;
+	write(ctx: NormalizeContext, data: unknown): Promise<void>;
 	children?(data: unknown, task: NormalizeTask): NewFetchTask[];
+	nextDueAt?(data: unknown, ctx: RefreshContext): Date | null | undefined;
 }
 
 const define = <T>(normalizer: Normalizer<T>) => normalizer as unknown as AnyNormalizer;
@@ -85,7 +92,7 @@ function child(
 	};
 }
 
-const isHistorical = (ctx: NormalizeContext) =>
+const isHistorical = (ctx: RefreshContext) =>
 	ctx.task.ctx.seasonYear !== undefined && ctx.task.ctx.seasonYear < ctx.currentYear;
 
 export const normalizers: Partial<Record<EndpointKey, AnyNormalizer>> = {
@@ -165,8 +172,9 @@ export const normalizers: Partial<Record<EndpointKey, AnyNormalizer>> = {
 				phaseId: ctx.task.ctx.phaseId
 			});
 			await writeGameStats(ctx.tx, game.id, players, teams);
-			return isHistorical(ctx) ? {} : { nextDueAt: gameDetailNextDueAt(game, ctx.now) };
-		}
+		},
+		nextDueAt: ({ game }, ctx) =>
+			game && !isHistorical(ctx) ? gameDetailNextDueAt(game, ctx.now) : undefined
 	}),
 
 	'v2.table': define({

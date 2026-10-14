@@ -29,7 +29,13 @@ export async function handleNormalizeTask(
 		task.force ||
 		state.normalizedRawPayloadId !== state.lastRawPayloadId ||
 		state.normalizerVersion !== normalizer.version;
-	if (!needsWrite && !task.recurse) return 'unchanged';
+	// A refetch with unchanged content keeps the payload row (and needsWrite false), but the fetch
+	// reset next_due_at to the default TTL; the content-aware value has to be computed again.
+	const refreshDue =
+		normalizer.nextDueAt !== undefined &&
+		state.lastFetchedAt !== null &&
+		(state.normalizedAt === null || state.lastFetchedAt > state.normalizedAt);
+	if (!needsWrite && !refreshDue && !task.recurse) return 'unchanged';
 
 	const raw = await loadRawPayload(deps.db, state.lastRawPayloadId);
 	const ok = raw.httpStatus >= 200 && raw.httpStatus < 300;
@@ -44,31 +50,29 @@ export async function handleNormalizeTask(
 		}
 	}
 
+	const now = deps.now?.() ?? new Date();
+	const currentYear = deps.currentYear();
+	const nextDueAt =
+		data === null ? undefined : normalizer.nextDueAt?.(data, { task, now, currentYear });
+
 	if (needsWrite) {
-		const now = deps.now?.() ?? new Date();
 		try {
 			await deps.db.transaction(async (tx) => {
-				const outcome =
-					data === null
-						? undefined
-						: await normalizer.write(
-								{
-									tx,
-									task,
-									rawPayloadId: raw.id,
-									fetchedAt: raw.lastFetchedAt,
-									now,
-									currentYear: deps.currentYear()
-								},
-								data
-							);
-				await markNormalized(tx, key, raw.id, normalizer.version, outcome?.nextDueAt);
+				if (data !== null) {
+					await normalizer.write(
+						{ tx, task, rawPayloadId: raw.id, fetchedAt: raw.lastFetchedAt, now, currentYear },
+						data
+					);
+				}
+				await markNormalized(tx, key, raw.id, normalizer.version, nextDueAt);
 			});
 		} catch (err) {
 			if (!isRetryable(err))
 				await recordNormalizeError(deps.db, key, `write: ${errorMessage(err)}`);
 			throw err;
 		}
+	} else if (refreshDue) {
+		await markNormalized(deps.db, key, raw.id, normalizer.version, nextDueAt);
 	}
 
 	if (task.recurse && data !== null && normalizer.children) {

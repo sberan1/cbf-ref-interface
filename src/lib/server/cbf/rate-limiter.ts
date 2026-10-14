@@ -26,6 +26,14 @@ export class RateLimiter {
 		this.nextAt = this.now() + this.minIntervalMs + Math.floor(this.random() * this.jitterMs);
 	}
 
+	/** Marks the end of a request: the pause is counted from here (ADR 0005 "pauza mezi requesty"). */
+	release(): void {
+		this.nextAt = Math.max(
+			this.nextAt,
+			this.now() + this.minIntervalMs + Math.floor(this.random() * this.jitterMs)
+		);
+	}
+
 	pause(ms: number): void {
 		this.pausedUntil = Math.max(this.pausedUntil, this.now() + ms);
 	}

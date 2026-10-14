@@ -34,7 +34,7 @@ const HELP = `ČBF sync CLI
 
   worker [--role all|fetch|normalize]   run queue consumers (Ctrl+C to stop)
   bootstrap [--from Y] [--to Y] [--areas 0-14] [--genders 0,1] [--force]
-                                        enqueue full history (default: last CBF_BOOTSTRAP_SEASONS seasons)
+                                        enqueue full history (default: current + CBF_BOOTSTRAP_SEASONS previous seasons)
   daily                                 enqueue refresh of the current season structure and games
   window                                enqueue game details in the −3/+14 day window
   fetch <endpoint> [name=value …] [--recurse] [--force]

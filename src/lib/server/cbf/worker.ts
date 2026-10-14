@@ -1,4 +1,6 @@
-import { createDb } from '../db/client';
+import { eq, max } from 'drizzle-orm';
+import { createDb, type Db } from '../db/client';
+import { fetchLog } from '../db/schema';
 import { currentSeasonYear, requireDatabaseUrl, type CbfConfig } from './config';
 import { CbfHttpClient } from './http';
 import { errorMessage, log } from './log';
@@ -34,18 +36,39 @@ async function settleFailure(
 }
 
 /**
+ * A block pause (HTTP 403/429/503) must survive worker restarts and single-active-consumer
+ * failover to another process, so it is resumed from the request log.
+ */
+async function resumeBlockPause(db: Db, limiter: RateLimiter, blockPauseMs: number) {
+	const [row] = await db
+		.select({ last: max(fetchLog.startedAt) })
+		.from(fetchLog)
+		.where(eq(fetchLog.outcome, 'error_blocked'));
+	const remaining = row?.last ? row.last.getTime() + blockPauseMs - Date.now() : 0;
+	if (remaining > 0) {
+		limiter.pause(remaining);
+		log.warn('resuming block pause after HTTP 403/429/503', { remainingMs: remaining });
+	}
+}
+
+/**
  * Runs consumers until the AMQP connection drops or `signal` aborts. Resolves on abort, rejects on
  * connection loss (the CLI restarts it).
  */
-export async function runWorker(config: CbfConfig, roles: WorkerRoles, signal: AbortSignal) {
+export async function runWorker(
+	config: CbfConfig,
+	roles: WorkerRoles,
+	signal: AbortSignal,
+	limiter = new RateLimiter(config.http.minIntervalMs, config.http.jitterMs)
+) {
 	const { db, client } = createDb(requireDatabaseUrl(config), { max: 5 });
 	const currentYear = () => currentSeasonYear(config);
-	const limiter = new RateLimiter(config.http.minIntervalMs, config.http.jitterMs);
 	const http = new CbfHttpClient(config.http, limiter);
 	let broker: Broker | undefined;
 	const consumers: Consumer[] = [];
 
 	try {
+		if (roles.fetch) await resumeBlockPause(db, limiter, config.http.blockPauseMs);
 		broker = await Broker.connect(config.amqpUrl, currentYear);
 		const b = broker;
 		const deps: PipelineDeps = { db, sink: b, log, currentYear };
@@ -87,7 +110,7 @@ export async function runWorker(config: CbfConfig, roles: WorkerRoles, signal: A
 		});
 		const outcome = await Promise.race([aborted, b.closed]);
 		if (outcome !== 'aborted') {
-			throw new Error(`AMQP connection closed${outcome ? `: ${outcome.message}` : ''}`);
+			throw new Error(`AMQP broker unusable${outcome ? `: ${outcome.message}` : ''}`);
 		}
 		log.info('worker stopping');
 	} finally {
@@ -99,9 +122,11 @@ export async function runWorker(config: CbfConfig, roles: WorkerRoles, signal: A
 
 /** Keeps the worker running across AMQP/DB outages until aborted. */
 export async function runWorkerForever(config: CbfConfig, roles: WorkerRoles, signal: AbortSignal) {
+	// one limiter for the whole process: spacing and block pauses survive reconnects
+	const limiter = new RateLimiter(config.http.minIntervalMs, config.http.jitterMs);
 	while (!signal.aborted) {
 		try {
-			await runWorker(config, roles, signal);
+			await runWorker(config, roles, signal, limiter);
 		} catch (err) {
 			if (signal.aborted) break;
 			log.error('worker crashed, restarting in 5 s', { err: errorMessage(err) });

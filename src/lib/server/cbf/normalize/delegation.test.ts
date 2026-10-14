@@ -42,6 +42,23 @@ describe('diffDelegation', () => {
 		).toEqual([]);
 	});
 
+	it('does not let an older snapshot resurrect an official removed by a newer one', () => {
+		// the row was deleted at t1, only the history remembers the removal
+		const lastChange = new Map([['commissioner' as const, t1]]);
+		expect(
+			diffDelegation([], [{ role: 'commissioner', official: jan }], 'authoritative', t0, lastChange)
+		).toEqual([]);
+		expect(
+			diffDelegation(
+				[],
+				[{ role: 'commissioner', official: jan }],
+				'authoritative',
+				new Date('2026-10-03T10:00:00Z'),
+				lastChange
+			)
+		).toEqual([{ type: 'assign', role: 'commissioner', official: jan }]);
+	});
+
 	it('only fills empty roles in fill mode', () => {
 		expect(
 			diffDelegation(

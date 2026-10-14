@@ -68,8 +68,22 @@ export interface Consumer {
 	cancel(): Promise<void>;
 }
 
+/** amqplib throws from `emit('error')` when no listener is attached; every channel gets one. */
+function logChannelErrors(ch: Channel, name: string) {
+	ch.on('error', (err: Error) =>
+		log.error('amqp channel error', { channel: name, err: err.message })
+	);
+}
+
 export class Broker implements TaskSink {
 	private drain: Promise<void> | null = null;
+	private closing = false;
+	private resolveClosed!: (reason: Error | undefined) => void;
+	/**
+	 * Resolves when the broker stops being usable: the connection closed, a channel was closed by
+	 * the server (e.g. delivery ack timeout) or a consumer was cancelled (queue deleted). The worker
+	 * races this promise and restarts.
+	 */
 	readonly closed: Promise<Error | undefined>;
 
 	private constructor(
@@ -78,14 +92,21 @@ export class Broker implements TaskSink {
 		private readonly currentYear: () => number
 	) {
 		this.closed = new Promise((resolve) => {
-			conn.on('close', (err?: Error) => resolve(err));
-			conn.on('error', (err: Error) => log.error('amqp connection error', { err: err.message }));
+			this.resolveClosed = resolve;
 		});
+		conn.on('close', (err?: Error) => this.resolveClosed(err));
+		conn.on('error', (err: Error) => log.error('amqp connection error', { err: err.message }));
+		pub.on('close', () => this.fail('publish channel closed'));
+	}
+
+	private fail(reason: string) {
+		if (!this.closing) this.resolveClosed(new Error(reason));
 	}
 
 	static async connect(url: string, currentYear: () => number): Promise<Broker> {
 		const conn = await amqp.connect(url);
 		const pub = await conn.createConfirmChannel();
+		logChannelErrors(pub, 'publish');
 		await assertTopology(pub);
 		return new Broker(conn, pub, currentYear);
 	}
@@ -156,10 +177,19 @@ export class Broker implements TaskSink {
 		handler: (body: unknown) => Promise<void>
 	): Promise<Consumer> {
 		const ch = await this.conn.createChannel();
+		logChannelErrors(ch, queues[role]);
+		let cancelling = false;
+		ch.on('close', () => {
+			if (!cancelling) this.fail(`consumer channel ${queues[role]} closed`);
+		});
 		await ch.prefetch(prefetch);
 		const inflight = new Set<Promise<void>>();
 		const { consumerTag } = await ch.consume(queues[role], (msg) => {
-			if (!msg) return;
+			if (!msg) {
+				// basic.cancel from the server, e.g. the queue was deleted to change its arguments
+				this.fail(`consumer of ${queues[role]} cancelled by the server`);
+				return;
+			}
 			const work = (async () => {
 				try {
 					let body: unknown;
@@ -186,6 +216,7 @@ export class Broker implements TaskSink {
 		});
 		return {
 			cancel: async () => {
+				cancelling = true;
 				await ch.cancel(consumerTag).catch(() => undefined);
 				await Promise.allSettled([...inflight]);
 				await ch.close().catch(() => undefined);
@@ -195,6 +226,7 @@ export class Broker implements TaskSink {
 
 	async queueStats() {
 		const ch = await this.conn.createChannel();
+		logChannelErrors(ch, 'stats');
 		try {
 			const names = (Object.keys(queues) as QueueRole[]).flatMap((role) => [
 				queues[role],
@@ -215,6 +247,7 @@ export class Broker implements TaskSink {
 	/** Moves dead messages back to the main queue with a reset attempt counter. */
 	async requeueDead(role: QueueRole, limit = Number.POSITIVE_INFINITY): Promise<number> {
 		const ch = await this.conn.createChannel();
+		logChannelErrors(ch, 'requeue');
 		let moved = 0;
 		try {
 			while (moved < limit) {
@@ -239,6 +272,7 @@ export class Broker implements TaskSink {
 	}
 
 	async close() {
+		this.closing = true;
 		await this.pub.close().catch(() => undefined);
 		await this.conn.close().catch(() => undefined);
 	}

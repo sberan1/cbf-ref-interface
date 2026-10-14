@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
-const intFromEnv = (fallback: number) => z.coerce.number().int().min(0).default(fallback);
+/** Empty strings (e.g. `CBF_MIN_INTERVAL_MS=`) count as unset, not as 0. */
+const emptyAsUnset = (value: unknown) => (value === '' ? undefined : value);
+
+const intFromEnv = (fallback: number) =>
+	z.preprocess(emptyAsUnset, z.coerce.number().int().min(0).default(fallback));
 
 const envSchema = z.object({
 	DATABASE_URL: z.string().min(1).optional(),
@@ -22,7 +26,7 @@ const envSchema = z.object({
 	CBF_AREAS: z.string().default('0-14'),
 	CBF_BOOTSTRAP_SEASONS: intFromEnv(20),
 	/** Override of the current season start year (otherwise derived from the date). */
-	CBF_CURRENT_SEASON_YEAR: z.coerce.number().int().optional(),
+	CBF_CURRENT_SEASON_YEAR: z.preprocess(emptyAsUnset, z.coerce.number().int().min(1990).optional()),
 	/** Max age of a game detail before the window job refetches it. */
 	CBF_WINDOW_MAX_AGE_HOURS: intFromEnv(12),
 	CBF_NORMALIZE_PREFETCH: intFromEnv(4)

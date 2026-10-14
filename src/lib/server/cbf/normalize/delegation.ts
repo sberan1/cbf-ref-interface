@@ -23,19 +23,25 @@ export type DelegationOp =
 
 /**
  * Compares the current delegation with a new snapshot. Observations older than what we already
- * know (e.g. re-normalizing an old payload) never win.
+ * know (e.g. re-normalizing an old payload) never win. `lastChange` holds the newest history
+ * observation per role, so a removal (which deletes the current row) still blocks older snapshots.
  */
 export function diffDelegation(
 	current: CurrentDelegation[],
 	observed: ObservedOfficial[],
 	mode: DelegationMode,
-	observedAt: Date
+	observedAt: Date,
+	lastChange: ReadonlyMap<OfficialRole, Date> = new Map()
 ): DelegationOp[] {
 	const byRole = new Map(current.map((c) => [c.role, c]));
 	const ops: DelegationOp[] = [];
 	for (const { role, official } of observed) {
 		const existing = byRole.get(role);
-		if (existing && existing.observedAt.getTime() > observedAt.getTime()) continue;
+		const floor = Math.max(
+			existing?.observedAt.getTime() ?? Number.NEGATIVE_INFINITY,
+			lastChange.get(role)?.getTime() ?? Number.NEGATIVE_INFINITY
+		);
+		if (floor > observedAt.getTime()) continue;
 		if (!official) {
 			if (existing && mode === 'authoritative') {
 				ops.push({ type: 'remove', role, previousOfficialId: existing.officialId });

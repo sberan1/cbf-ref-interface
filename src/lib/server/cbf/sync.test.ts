@@ -21,6 +21,13 @@ describe('config', () => {
 		expect(currentSeasonYear({ currentSeasonYear: 2030 })).toBe(2030);
 	});
 
+	it('treats empty env values as unset', () => {
+		const config = loadConfig({ CBF_MIN_INTERVAL_MS: '', CBF_CURRENT_SEASON_YEAR: '' });
+		expect(config.http.minIntervalMs).toBe(2000);
+		expect(config.currentSeasonYear).toBeUndefined();
+		expect(() => loadConfig({ CBF_CURRENT_SEASON_YEAR: '0' })).toThrow();
+	});
+
 	it('has polite defaults', () => {
 		const config = loadConfig({});
 		expect(config.http.minIntervalMs).toBe(2000);
@@ -68,6 +75,25 @@ describe('RateLimiter', () => {
 		await limiter.acquire();
 		expect(waits).toEqual([2500, 60_000]);
 	});
+
+	it('counts the pause from the end of a slow request', async () => {
+		let now = 0;
+		const waits: number[] = [];
+		const limiter = new RateLimiter(
+			2000,
+			0,
+			() => now,
+			async (ms) => {
+				waits.push(ms);
+				now += ms;
+			}
+		);
+		await limiter.acquire();
+		now += 25_000; // the response took 25 s
+		limiter.release();
+		await limiter.acquire();
+		expect(waits).toEqual([2000]);
+	});
 });
 
 describe('scheduling', () => {
@@ -107,7 +133,7 @@ describe('scheduling', () => {
 		);
 		expect(gameDetailNextDueAt(game('2026-09-20T16:00:00Z', true, false), now)).toBeNull();
 		expect(gameDetailNextDueAt(game('2026-10-20T16:00:00Z', false), now)?.getTime()).toBe(
-			now.getTime() + 6 * 3600_000
+			now.getTime() + 12 * 3600_000
 		);
 		expect(gameDetailNextDueAt(game('2026-12-20T16:00:00Z', false), now)?.getTime()).toBe(
 			now.getTime() + 7 * 24 * 3600_000

@@ -2,7 +2,7 @@
  * Idempotent upserts of parsed ČBF data into the `cbf` schema. Every function runs inside the
  * normalization transaction of one raw payload.
  */
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, max, sql } from 'drizzle-orm';
 import type { Tx } from '../../db/client';
 import * as s from '../../db/schema';
 import type {
@@ -35,6 +35,26 @@ import {
 
 const now = sql`now()`;
 const BATCH = 500;
+/** Namespace of transaction-scoped advisory locks taken per game (pg_advisory_xact_lock). */
+const GAME_LOCK_NAMESPACE = 41_002;
+
+/**
+ * Serializes writes of the same games across parallel normalize consumers (games list, game detail
+ * and v1 sched of one game can be normalized at the same time). Locks are taken in ID order.
+ */
+async function lockGames(tx: Tx, ids: number[]) {
+	const sorted = [...new Set(ids)].sort((a, b) => a - b);
+	for (const batch of chunk(sorted, BATCH)) {
+		const values = sql.join(
+			batch.map((id) => sql`(${id}::int)`),
+			sql`, `
+		);
+		await tx.execute(sql`
+			select pg_advisory_xact_lock(${GAME_LOCK_NAMESPACE}::int, g.id)
+			from (select v.id from (values ${values}) as v(id) order by v.id) as g
+		`);
+	}
+}
 
 /**
  * Area names derived from the competitions each area returned in discovery (2026/27). Areas 9–11,
@@ -367,6 +387,10 @@ export interface GameWriteMeta {
 export async function writeGames(tx: Tx, parsed: ParsedGame[], meta: GameWriteMeta) {
 	const games = uniqueBy(parsed, (g) => g.id);
 	if (!games.length) return;
+	await lockGames(
+		tx,
+		games.map((g) => g.id)
+	);
 	const isV1 = meta.source === 'v1.sched';
 	const isDetail = meta.source === 'v2.game';
 	const competitionOf = (g: ParsedGame) => g.competitionId ?? meta.competitionId ?? null;
@@ -541,18 +565,24 @@ async function writeDelegations(
 		})
 		.from(s.gameOfficial)
 		.where(inArray(s.gameOfficial.gameId, ids));
-	// roles that already have history: a first assignment elsewhere is the initial observation
-	const withHistory = new Set(
-		(
-			await tx
-				.selectDistinct({
-					gameId: s.gameOfficialHistory.gameId,
-					role: s.gameOfficialHistory.role
-				})
-				.from(s.gameOfficialHistory)
-				.where(inArray(s.gameOfficialHistory.gameId, ids))
-		).map((r) => `${r.gameId}:${r.role}`)
-	);
+	// newest history observation per role: a lower bound for stale snapshots, and roles without
+	// history get their first assignment marked as the initial observation
+	const lastChange = new Map<number, Map<s.OfficialRole, Date>>();
+	const historyRows = await tx
+		.select({
+			gameId: s.gameOfficialHistory.gameId,
+			role: s.gameOfficialHistory.role,
+			last: max(s.gameOfficialHistory.observedAt)
+		})
+		.from(s.gameOfficialHistory)
+		.where(inArray(s.gameOfficialHistory.gameId, ids))
+		.groupBy(s.gameOfficialHistory.gameId, s.gameOfficialHistory.role);
+	for (const row of historyRows) {
+		if (!row.last) continue;
+		const roles = lastChange.get(row.gameId) ?? new Map<s.OfficialRole, Date>();
+		roles.set(row.role, row.last);
+		lastChange.set(row.gameId, roles);
+	}
 	const currentByGame = new Map<number, CurrentDelegation[]>();
 	for (const row of currentRows) {
 		const list = currentByGame.get(row.gameId) ?? [];
@@ -572,7 +602,8 @@ async function writeDelegations(
 
 	for (const game of observedGames) {
 		const current = currentByGame.get(game.id) ?? [];
-		for (const op of diffDelegation(current, game.officials, mode, meta.observedAt)) {
+		const gameHistory = lastChange.get(game.id) ?? new Map<s.OfficialRole, Date>();
+		for (const op of diffDelegation(current, game.officials, mode, meta.observedAt, gameHistory)) {
 			if (op.type === 'remove') {
 				removals.push({ gameId: game.id, role: op.role });
 				history.push({
@@ -603,7 +634,7 @@ async function writeDelegations(
 					changeType: op.type === 'assign' ? 'assigned' : 'replaced',
 					officialId: op.official.id,
 					previousOfficialId: op.type === 'replace' ? op.previousOfficialId : null,
-					isInitial: op.type === 'assign' && !withHistory.has(`${game.id}:${op.role}`),
+					isInitial: op.type === 'assign' && !gameHistory.has(op.role),
 					...common
 				});
 			}
@@ -801,22 +832,30 @@ export async function writeRoster(
 
 /**
  * v1 sched.php names officials by canonical person ID. Where v2 already knows who holds the same
- * role in the same game, the canonical ID is stored as `official.group_id` (needed mainly for
- * commissioners, whose v2 records carry no group ID). Never overwrites an existing group ID.
+ * role in the same game, under the same last name, the canonical ID is stored as
+ * `official.group_id` (needed mainly for commissioners, whose v2 records carry no group ID). The
+ * name check keeps a stale v1 document from linking a replaced official. Never overwrites.
  */
 export async function linkOfficialGroups(tx: Tx, refs: V1OfficialRef[]) {
-	const unique = uniqueBy(refs, (r) => `${r.gameId}:${r.role}`);
+	const unique = uniqueBy(
+		refs.filter((r) => r.lastName !== null),
+		(r) => `${r.gameId}:${r.role}`
+	);
 	for (const batch of chunk(unique, BATCH)) {
 		const values = sql.join(
-			batch.map((r) => sql`(${r.gameId}::int, ${r.role}::text, ${r.groupId}::int)`),
+			batch.map(
+				(r) => sql`(${r.gameId}::int, ${r.role}::text, ${r.groupId}::int, ${r.lastName}::text)`
+			),
 			sql`, `
 		);
 		await tx.execute(sql`
 			update ${s.official} as o
 			set group_id = v.group_id, updated_at = now()
-			from (values ${values}) as v(game_id, role, group_id)
+			from (values ${values}) as v(game_id, role, group_id, last_name)
 			join ${s.gameOfficial} as go on go.game_id = v.game_id and go.role = v.role
-			where o.id = go.official_id and o.group_id is null
+			where o.id = go.official_id
+				and o.group_id is null
+				and lower(trim(o.last_name)) = lower(trim(v.last_name))
 		`);
 	}
 }

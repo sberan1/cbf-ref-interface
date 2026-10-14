@@ -50,6 +50,7 @@ export function gameDetailNextDueAt(game: ParsedGame, now: Date): Date | null {
 	const hasResult = game.homeScore !== null && game.awayScore !== null;
 	const final = hasResult && (game.resultChecked !== false || start < t - 14 * DAY);
 	if (start < t - 3 * DAY) return final ? null : new Date(t + 3 * DAY);
-	if (start <= t + 14 * DAY) return new Date(t + 6 * HOUR);
+	// same cadence as the window job (CBF_WINDOW_MAX_AGE_HOURS default)
+	if (start <= t + 14 * DAY) return new Date(t + 12 * HOUR);
 	return new Date(t + 7 * DAY);
 }
