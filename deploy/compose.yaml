@@ -8,8 +8,8 @@ x-app: &app
   init: true
   env_file: .env
   environment:
-    DATABASE_URL: postgres://cbf:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/cbf
-    AMQP_URL: amqp://cbf:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}@rabbitmq:5672
+    DATABASE_URL: postgres://cbf:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@cbf-ref-db:5432/cbf
+    AMQP_URL: amqp://cbf:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}@cbf-ref-rabbitmq:5672
   logging: &logging
     driver: json-file
     options:
@@ -29,6 +29,10 @@ services:
   db:
     image: postgres:17
     restart: unless-stopped
+    # the app also sits on the proxy network, where a plain `db` may be another stack's database
+    networks:
+      default:
+        aliases: [cbf-ref-db]
     shm_size: 256mb
     environment:
       POSTGRES_USER: cbf
@@ -49,6 +53,9 @@ services:
   rabbitmq:
     image: rabbitmq:4-management
     restart: unless-stopped
+    networks:
+      default:
+        aliases: [cbf-ref-rabbitmq]
     # the node name (rabbit@rabbitmq) selects the data directory, so it must survive recreation
     hostname: rabbitmq
     environment:
@@ -119,7 +126,7 @@ services:
     depends_on: *after-migrations
 
 networks:
-  # the reverse proxy's network; must exist before `up` (it belongs to the proxy's own stack)
+  # the reverse proxy's network (it belongs to the proxy's own stack); deploy.sh creates it if missing
   proxy:
     name: ${PROXY_NETWORK:-nginx_default}
     external: true

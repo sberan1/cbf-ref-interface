@@ -16,6 +16,10 @@ docker login ghcr.io --username "$registry_user" --password-stdin
 trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
 export IMAGE_TAG="$tag"
+# the proxy network is external; create it on a host where the proxy isn't set up yet
+proxy_network=$(sed -n 's/^PROXY_NETWORK=//p' .env | tail -n 1)
+proxy_network=${proxy_network:-nginx_default}
+docker network inspect "$proxy_network" >/dev/null 2>&1 || docker network create "$proxy_network"
 docker compose pull --quiet
 # runs migrate first, then recreates app, worker and scheduler on the new image
 docker compose up --detach --remove-orphans

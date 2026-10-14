@@ -199,9 +199,18 @@ export const schedules: FeeSchedule[] = [
 		id: 'cbf-2023',
 		scope: 'cbf',
 		validFrom: '2023-07-01',
-		validTo: '2025-07-01',
+		validTo: '2024-07-01',
 		provenance: 'document',
-		source: 'Přehled odměn rozhodčích 2023/24 (2024/25 odvozeno, 2023/24 i 2025/26 jsou shodné)',
+		source: 'Přehled odměn rozhodčích 2023/24',
+		rates: cbf2023
+	},
+	{
+		id: 'cbf-2024',
+		scope: 'cbf',
+		validFrom: '2024-07-01',
+		validTo: '2025-07-01',
+		provenance: 'assumed',
+		source: 'předpoklad: 2023/24 i 2025/26 jsou shodné',
 		rates: cbf2023
 	},
 	{
@@ -272,7 +281,10 @@ export const schedules: FeeSchedule[] = [
 		validFrom: '2017-07-01',
 		validTo: '2020-07-01',
 		provenance: 'reported',
-		source: 'podle rozhodčího: minižactvo 300, 3. třída 400, každá vyšší soutěž +100',
+		// the referee gave mini, 3. třída and the +100 ladder "as in recent years", which also places
+		// youth, the cup and 3x3 like 2023/24
+		source:
+			'podle rozhodčího: minižactvo 300, 3. třída 400, každá vyšší soutěž +100 (vzor jako 2023/24)',
 		singleReferee: pragueSingle,
 		rates: pragueLadder({ ostatni: 400, mini: 300, u11_3x3: 150 })
 	},

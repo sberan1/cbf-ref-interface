@@ -42,6 +42,7 @@ export async function personFees(
 			gameId: game.id,
 			role: gameOfficial.role,
 			date: game.scheduledDate,
+			hasResult: sql<boolean>`${game.homeScore} is not null and ${game.awayScore} is not null`,
 			round: game.round,
 			seasonYear: competition.seasonYear,
 			competitionId: competition.id,
@@ -62,28 +63,42 @@ export async function personFees(
 		.where(inArray(gameOfficial.officialId, officialIds));
 
 	return rows.map((r) => {
-		const played = r.date !== null && r.date <= today;
+		const past = r.date !== null && r.date <= today;
+		// a past game without a result was cancelled or never played: no fee
+		const played = past && r.hasResult;
+		const fee = gameFee({
+			role: r.role,
+			date: r.date,
+			refereeCount: r.refereeCount,
+			played,
+			areaId: r.areaId,
+			isFemale: r.isFemale,
+			categoryName: r.categoryName,
+			leagueName: r.leagueName,
+			competitionName: r.competitionName,
+			phaseName: r.phaseName,
+			round: r.round
+		});
 		return {
 			gameId: r.gameId,
 			role: r.role,
 			date: r.date,
-			seasonYear: r.seasonYear,
+			// seasons start in July; derive one for games whose competition has none
+			seasonYear:
+				r.seasonYear ??
+				(r.date ? Number(r.date.slice(0, 4)) - (Number(r.date.slice(5, 7)) < 7 ? 1 : 0) : null),
 			competitionId: r.competitionId,
 			competitionName: r.competitionName,
 			played,
-			fee: gameFee({
-				role: r.role,
-				date: r.date,
-				refereeCount: r.refereeCount,
-				played,
-				areaId: r.areaId,
-				isFemale: r.isFemale,
-				categoryName: r.categoryName,
-				leagueName: r.leagueName,
-				competitionName: r.competitionName,
-				phaseName: r.phaseName,
-				round: r.round
-			})
+			fee:
+				past && !played && fee.amount !== null
+					? {
+							amount: null,
+							key: fee.key,
+							label: fee.label,
+							reason: 'odehraný zápas bez výsledku (zrušený?)'
+						}
+					: fee
 		};
 	});
 }
@@ -101,6 +116,7 @@ export interface SeasonEarnings {
 }
 
 export interface UnratedGroup {
+	key: string;
 	competitionName: string | null;
 	seasonYear: number | null;
 	reason: string;
@@ -147,8 +163,9 @@ export function summarizeEarnings(rows: FeeRow[], currentSeasonYear: number): Ea
 		if (r.fee.amount === null) {
 			out.unratedGames++;
 			if (season) season.unrated++;
-			const key = `${r.competitionId}:${r.fee.reason}`;
+			const key = `${r.competitionId}:${r.seasonYear}:${r.fee.reason}`;
 			const group = unrated.get(key) ?? {
+				key,
 				competitionName: r.competitionName,
 				seasonYear: r.seasonYear,
 				reason: r.fee.reason,
@@ -203,8 +220,9 @@ export function earningsTimeline(
 		if (from && key < from) continue;
 		const entry = amounts.get(key) ?? { amount: 0, estimated: 0, expected: 0 };
 		entry.amount += r.fee.amount;
-		if (isEstimate(r.fee)) entry.estimated += r.fee.amount;
+		// estimated = played games at assumed rates; upcoming ones are all in expected
 		if (!r.played) entry.expected += r.fee.amount;
+		else if (isEstimate(r.fee)) entry.estimated += r.fee.amount;
 		amounts.set(key, entry);
 	}
 
