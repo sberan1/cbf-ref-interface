@@ -1,0 +1,39 @@
+# Example nginx site for the app (host nginx, TLS e.g. via certbot). Replace ref.example.cz.
+# Basic auth file: sudo htpasswd -c /etc/nginx/cbf-ref.htpasswd <user>   (apache2-utils)
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ref.example.cz;
+
+    ssl_certificate     /etc/letsencrypt/live/ref.example.cz/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ref.example.cz/privkey.pem;
+
+    auth_basic           "Rozhodci CBF";
+    auth_basic_user_file /etc/nginx/cbf-ref.htpasswd;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        # the app derives its origin (CSRF check of the login form) from these two
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP         $remote_addr;
+    }
+
+    # Docker healthchecks call the app directly; this keeps /healthz out of basic auth for an
+    # external uptime monitor (optional, it only reports whether the DB answers)
+    location = /healthz {
+        auth_basic off;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+server {
+    listen 80;
+    server_name ref.example.cz;
+    return 301 https://$host$request_uri;
+}

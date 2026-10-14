@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { db } from '#lib/server/db/index.ts';
+import { getDb } from '#lib/server/db/index.ts';
 import {
 	competitionBreakdown,
 	currentSeasonStartYear,
@@ -17,6 +17,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	if (!locals.user) redirect(303, '/login');
 	const g = url.searchParams.get('g');
 	const granularity = isGranularity(g) ? g : 'season';
+	const db = getDb();
 	const now = new Date();
 	const today = pragueToday(now);
 	const currentSeasonYear = await currentSeasonStartYear(db, now);

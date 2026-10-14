@@ -1,0 +1,16 @@
+.git
+.github
+.svelte-kit
+.vscode
+.claude
+node_modules
+build
+dist
+docs
+discovery
+deploy
+test-results
+.env
+.env.*
+*.md
+compose.yaml

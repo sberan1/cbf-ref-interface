@@ -26,3 +26,6 @@ test-results
 
 # CBF discovery samples (contain personal data from the export)
 /discovery/out
+
+# bundled worker CLI (npm run build:worker)
+/dist

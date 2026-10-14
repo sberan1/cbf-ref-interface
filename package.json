@@ -21,12 +21,14 @@
 		"db:migrate": "drizzle-kit migrate",
 		"db:studio": "drizzle-kit studio",
 		"cbf": "tsx scripts/cbf.ts",
-		"cbf:worker": "tsx scripts/cbf.ts worker"
+		"cbf:worker": "tsx scripts/cbf.ts worker",
+		"build:worker": "esbuild scripts/cbf.ts scripts/migrate.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outdir=dist --log-level=warning",
+		"db:migrate:prod": "node dist/migrate.js"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
 		"@playwright/test": "^1.60.0",
-		"@sveltejs/adapter-auto": "^8.0.0",
+		"@sveltejs/adapter-node": "^6.0.0",
 		"@sveltejs/kit": "^3.0.0",
 		"@sveltejs/vite-plugin-svelte": "^7.2.0",
 		"@tailwindcss/forms": "^0.5.11",
@@ -34,6 +36,7 @@
 		"@tailwindcss/vite": "^4.3.0",
 		"@types/node": "^24",
 		"drizzle-kit": "^0.31.10",
+		"esbuild": "^0.28.2",
 		"eslint": "^10.4.1",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-svelte": "^3.19.0",

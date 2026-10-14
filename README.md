@@ -53,8 +53,9 @@ npm run cbf -- help
 npm run cbf -- discover                 # nejdřív: vzorky endpointů do discovery/out/ (bez DB a fronty)
 npm run cbf:worker                      # consumer fronty (fetch + normalize), Ctrl+C = čisté ukončení
 npm run cbf -- bootstrap                # posledních 20 sezón + aktuální, nejnovější první
-npm run cbf -- daily                    # obnova aktuální sezóny (cron 1× denně)
-npm run cbf -- window                   # detaily zápasů v okně −3/+14 dní (cron po pár hodinách)
+npm run cbf -- daily                    # obnova aktuální sezóny (1× denně)
+npm run cbf -- window                   # detaily zápasů v okně −3/+14 dní (po pár hodinách)
+npm run cbf -- scheduler                # trvale běžící plánovač daily + window (místo cronu)
 npm run cbf -- fetch v2.game game=273093 --force
 npm run cbf -- renormalize --endpoint v2.games --force   # přepočet z raw dat, bez HTTP
 npm run cbf -- stats                    # hloubka front, počty řádků, requesty za poslední hodinu
@@ -80,9 +81,17 @@ Hlavní zvláštnosti exportu:
 Za HTTP proxy (např. cloudový sandbox) potřebuje Node `fetch` proměnnou `NODE_USE_ENV_PROXY=1`
 (Node ≥ 22.21).
 
+## Nasazení
+
+Produkce běží v Dockeru na VPS. Jeden image slouží pro web, worker, scheduler i migrace. Push do
+`master` spustí GitHub Actions: kontroly → build a smoke test image → push do GHCR → deploy přes
+SSH (`docker compose`). Nastavení VPS, secrets, nginx a první spuštění popisuje
+[`deploy/README.md`](deploy/README.md), rozhodnutí je v ADR 0007.
+
 ## Testy
 
 ```sh
 npm run test:unit -- --run   # vitest (parsery, časová zóna, delegace, plánování)
 npm run check && npm run lint
+docker build -t cbf-ref:test . && scripts/docker-smoke-test.sh cbf-ref:test   # produkční image
 ```

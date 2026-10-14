@@ -17,7 +17,8 @@ import {
 import { runDiscovery } from '../src/lib/server/cbf/discovery';
 import { endpoints, isEndpointKey, normalizeParams } from '../src/lib/server/cbf/endpoints';
 import { CbfHttpClient } from '../src/lib/server/cbf/http';
-import { log } from '../src/lib/server/cbf/log';
+import { dueJobs, markDone, type CronState } from '../src/lib/server/cbf/cron';
+import { errorMessage, log } from '../src/lib/server/cbf/log';
 import { Broker, type QueueRole } from '../src/lib/server/cbf/queue/broker';
 import { RateLimiter } from '../src/lib/server/cbf/rate-limiter';
 import {
@@ -37,6 +38,8 @@ const HELP = `ČBF sync CLI
                                         enqueue full history (default: current + CBF_BOOTSTRAP_SEASONS previous seasons)
   daily                                 enqueue refresh of the current season structure and games
   window                                enqueue game details in the −3/+14 day window
+  scheduler                             long-running: daily at CBF_DAILY_AT (Prague), window every
+                                        CBF_WINDOW_EVERY_HOURS (replaces cron in Docker)
   fetch <endpoint> [name=value …] [--recurse] [--force]
                                         enqueue one resource, e.g. fetch v2.game game=273093
   renormalize [--endpoint KEY] [--force]
@@ -48,6 +51,32 @@ const HELP = `ČBF sync CLI
 
 Endpoints: ${Object.keys(endpoints).join(', ')}
 `;
+
+/** AbortSignal that fires on SIGINT/SIGTERM (docker stop). */
+function abortOnSignals(): AbortSignal {
+	const controller = new AbortController();
+	for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+		process.once(sig, () => {
+			log.info(`${sig} received, finishing in-flight work`);
+			controller.abort();
+		});
+	}
+	return controller.signal;
+}
+
+function abortableSleep(ms: number, signal: AbortSignal) {
+	return new Promise<void>((resolve) => {
+		const timer = setTimeout(resolve, ms);
+		signal.addEventListener(
+			'abort',
+			() => {
+				clearTimeout(timer);
+				resolve();
+			},
+			{ once: true }
+		);
+	});
+}
 
 function loadEnvFile() {
 	const file = join(process.cwd(), '.env');
@@ -95,18 +124,45 @@ async function main() {
 			const { values } = parseArgs({ args: rest, options: { role: { type: 'string' } } });
 			const role = values.role ?? 'all';
 			if (!['all', 'fetch', 'normalize'].includes(role)) throw new Error(`Unknown role ${role}`);
-			const controller = new AbortController();
-			for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-				process.once(sig, () => {
-					log.info(`${sig} received, finishing in-flight work`);
-					controller.abort();
-				});
-			}
 			await runWorkerForever(
 				config,
 				{ fetch: role !== 'normalize', normalize: role !== 'fetch' },
-				controller.signal
+				abortOnSignals()
 			);
+			return;
+		}
+
+		case 'scheduler': {
+			const signal = abortOnSignals();
+			let state: CronState = { lastDaily: null, lastWindow: null };
+			log.info('scheduler started', {
+				dailyAt: config.dailyAt,
+				windowEveryHours: config.windowEveryMs / 3600_000
+			});
+			while (!signal.aborted) {
+				const now = new Date();
+				for (const job of dueJobs(state, now, config)) {
+					const seasonYear = currentSeasonYear(config, now);
+					try {
+						const tasks =
+							job === 'daily'
+								? dailyTasks(seasonYear, scopeFrom(config, {}))
+								: await withDb(config, (db) =>
+										windowTasks(db, {
+											now,
+											currentYear: seasonYear,
+											maxAgeSec: config.windowMaxAgeSec
+										})
+									);
+						const n = await withBroker(config, (b) => enqueue(b, tasks));
+						state = markDone(state, job, now);
+						log.info(`${job} enqueued`, { tasks: n });
+					} catch (err) {
+						log.error(`${job} failed, retrying next minute`, { err: errorMessage(err) });
+					}
+				}
+				await abortableSleep(60_000, signal);
+			}
 			return;
 		}
 
