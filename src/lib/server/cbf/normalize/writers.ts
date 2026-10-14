@@ -624,7 +624,6 @@ async function writeDelegations(
 				officialId: op.official.id,
 				firstName: op.official.firstName,
 				lastName: op.official.lastName,
-				ratings: op.official.ratings,
 				...common
 			});
 			if (op.type === 'assign' || op.type === 'replace') {
@@ -653,7 +652,6 @@ async function writeDelegations(
 						'officialId',
 						'firstName',
 						'lastName',
-						'ratings',
 						'source',
 						'observedAt',
 						'rawPayloadId'
@@ -790,6 +788,15 @@ export async function writeTeam(tx: Tx, team: ParsedTeam, competitionId: number)
 	await upsertCompetitionTeams(tx, [
 		{ competitionId, teamId: team.id, name: team.name, abbr: team.abbr }
 	]);
+
+	// contacts are a full list per team: replace them with the latest snapshot
+	await tx.delete(s.teamContact).where(eq(s.teamContact.teamId, team.id));
+	const contacts = uniqueBy(team.contacts, (c) => `${c.userId}:${c.role}`);
+	if (contacts.length) {
+		await tx
+			.insert(s.teamContact)
+			.values(contacts.map(({ raw, ...c }) => ({ teamId: team.id, ...c, extra: raw })));
+	}
 }
 
 export async function writeRoster(

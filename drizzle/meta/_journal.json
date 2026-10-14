@@ -8,6 +8,13 @@
       "when": 1791975944378,
       "tag": "0000_init_cbf_ingest",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791980415761,
+      "tag": "0001_referee_app_login",
+      "breakpoints": true
     }
   ]
 }

@@ -34,6 +34,7 @@ import type {
 	ParsedSeason,
 	ParsedStanding,
 	ParsedTeam,
+	ParsedTeamContact,
 	ParsedTeamGameStats,
 	ParsedVenue
 } from './types';
@@ -142,7 +143,7 @@ const v2OfficialKeys: [OfficialRole, string][] = [
 ];
 
 /**
- * Referees are only in game.php (`uNid`, `uNn1` first name, `uNn2` last name, `uNgroup`, ratings);
+ * Referees are only in game.php (`uNid`, `uNn1` first name, `uNn2` last name, `uNgroup`);
  * games.php carries just the commissioner. `uNid = 0` with a name ("Delegováno") means the
  * delegation exists but is not published yet → unknown, not vacant.
  */
@@ -157,20 +158,9 @@ function parseV2Officials(rec: Rec): ObservedOfficial[] {
 			if (firstName === null && lastName === null) observed.push({ role, official: null });
 			continue;
 		}
-		const ratings = {
-			home: rec[`rating_${p}_home`] ?? null,
-			guest: rec[`rating_${p}_guest`] ?? null,
-			commissioner: rec[`rating_${p}_commisar`] ?? null
-		};
 		observed.push({
 			role,
-			official: {
-				id: personId,
-				groupId: id(rec[`${p}group`]),
-				firstName,
-				lastName,
-				ratings: Object.values(ratings).some((v) => v !== null && v !== '') ? ratings : null
-			}
+			official: { id: personId, groupId: id(rec[`${p}group`]), firstName, lastName }
 		});
 	}
 	if (hasAnyKey(rec, 'commisarid')) {
@@ -180,7 +170,7 @@ function parseV2Officials(rec: Rec): ObservedOfficial[] {
 		if (personId !== null) {
 			observed.push({
 				role: 'commissioner',
-				official: { id: personId, groupId: null, firstName, lastName, ratings: null }
+				official: { id: personId, groupId: null, firstName, lastName }
 			});
 		} else if (firstName === null && lastName === null) {
 			observed.push({ role: 'commissioner', official: null });
@@ -322,10 +312,37 @@ export function parseV2Table(body: string): ParsedStanding[] {
 	});
 }
 
+function parseTeamContact(rec: Rec): ParsedTeamContact | null {
+	const userId = id(rec.IDuser);
+	if (userId === null) return null;
+	const isMale = bool01(rec.is_male);
+	return {
+		userId,
+		groupId: id(rec.groupby),
+		role: str(rec.name) ?? '',
+		firstName: str(rec.first_name),
+		lastName: str(rec.last_name),
+		degreePrefix: str(rec.degree_prefix),
+		degreeSuffix: str(rec.degree_suffix),
+		isMale,
+		birthDate: cbfDate(rec.birthdate),
+		street: str(rec.street),
+		houseNumber: str(rec.c_p),
+		city: str(rec.city),
+		zip: str(rec.psc),
+		phones: [str(rec.phone_1), str(rec.phone_2), str(rec.phone_3)].filter(
+			(p): p is string => p !== null
+		),
+		email: str(rec.email),
+		validFrom: cbfDate(rec.date_of_begin),
+		validTo: cbfDate(rec.date_of_end),
+		raw: rec
+	};
+}
+
 /**
- * team.php?id=&competition= – { info: [team], contact: [...], match: [...], matchaggr: [...] }.
- * `contact` holds club officials' personal data (birth dates, addresses) and is deliberately not
- * normalized; it stays only in the raw payload.
+ * team.php?id=&competition= – { info: [team], contact: [club officials], match: [...],
+ * matchaggr: [...] }.
  */
 export function parseV2Team(body: string): ParsedTeam | null {
 	const payload = jsonObject(body);
@@ -350,6 +367,7 @@ export function parseV2Team(body: string): ParsedTeam | null {
 		phones: [str(rec.phone_1), str(rec.phone_2)].filter((p): p is string => p !== null),
 		categoryId: id(rec.IDcategory),
 		club: idName(rec.IDclub, rec.clubname),
+		contacts: asRecordArray(payload.contact).flatMap((c) => parseTeamContact(c) ?? []),
 		raw: rec
 	};
 }

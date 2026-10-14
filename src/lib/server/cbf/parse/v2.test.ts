@@ -50,7 +50,7 @@ const listRecord = {
 	lon: '14.01285350'
 };
 
-/** game.php gameInfo record: the list fields plus referees, ratings, hall and street. */
+/** game.php gameInfo record: the list fields plus referees, hall and street. */
 const detailRecord = {
 	...listRecord,
 	checked: '1',
@@ -142,14 +142,13 @@ describe('v2 parsers', () => {
 					id: 50001,
 					groupId: null,
 					firstName: 'Eva',
-					lastName: 'Dvořáková',
-					ratings: null
+					lastName: 'Dvořáková'
 				}
 			}
 		]);
 	});
 
-	it('maps game.php with referees, ratings, vacancy and box score', () => {
+	it('maps game.php with referees, vacancy and box score', () => {
 		const detail = parseV2GameDetail(
 			JSON.stringify({
 				gameInfo: [detailRecord],
@@ -181,12 +180,6 @@ describe('v2 parsers', () => {
 			['referee3', undefined, undefined],
 			['commissioner', 50001, null]
 		]);
-		expect(detail.game?.officials[0].official?.ratings).toEqual({
-			home: '8',
-			guest: null,
-			commissioner: null
-		});
-		expect(detail.game?.officials[1].official?.ratings).toBeNull();
 		expect(detail.players).toMatchObject([
 			{ player: { id: 143628, groupId: 143628 }, teamId: 7001, jersey: '7', isGuest: false }
 		]);
@@ -261,7 +254,7 @@ describe('v2 parsers', () => {
 		]);
 	});
 
-	it('parses team info without contacts', () => {
+	it('parses team info with club contacts', () => {
 		const body = JSON.stringify({
 			info: [
 				{
@@ -276,7 +269,20 @@ describe('v2 parsers', () => {
 					phone_2: ''
 				}
 			],
-			contact: [{ IDuser: '1', first_name: 'X', birthdate: '1980-01-01' }],
+			contact: [
+				{
+					IDuser: '58001',
+					groupby: '123',
+					first_name: 'Karel',
+					last_name: 'Vzorový',
+					birthdate: '1980-01-01',
+					name: 'organizační pracovník',
+					phone_1: '',
+					phone_3: '777 000 000',
+					date_of_begin: '2013-08-20',
+					date_of_end: null
+				}
+			],
 			match: []
 		});
 		expect(parseV2Team(body)).toMatchObject({
@@ -285,7 +291,18 @@ describe('v2 parsers', () => {
 			abbr: 'UNL',
 			isFemale: false,
 			club: { id: 1490 },
-			phones: ['123']
+			phones: ['123'],
+			contacts: [
+				{
+					userId: 58001,
+					groupId: 123,
+					role: 'organizační pracovník',
+					birthDate: '1980-01-01',
+					phones: ['777 000 000'],
+					validFrom: '2013-08-20',
+					validTo: null
+				}
+			]
 		});
 	});
 

@@ -47,10 +47,7 @@ export interface ParsedPerson {
 	lastName: string | null;
 }
 
-export interface ParsedOfficial extends ParsedPerson {
-	/** Referee evaluation { home, guest, commissioner } as sent by ČBF, null when absent. */
-	ratings: Rec | null;
-}
+export type ParsedOfficial = ParsedPerson;
 
 /** `official: null` means the source explicitly says the role is vacant. */
 export interface ObservedOfficial {
@@ -165,6 +162,29 @@ export interface ParsedTeam {
 	phones: string[];
 	categoryId: number | null;
 	club: IdName | null;
+	contacts: ParsedTeamContact[];
+	raw: Rec;
+}
+
+/** Club official of a team (team.php `contact`). */
+export interface ParsedTeamContact {
+	userId: number;
+	groupId: number | null;
+	role: string;
+	firstName: string | null;
+	lastName: string | null;
+	degreePrefix: string | null;
+	degreeSuffix: string | null;
+	isMale: boolean | null;
+	birthDate: string | null;
+	street: string | null;
+	houseNumber: string | null;
+	city: string | null;
+	zip: string | null;
+	phones: string[];
+	email: string | null;
+	validFrom: string | null;
+	validTo: string | null;
 	raw: Rec;
 }
 

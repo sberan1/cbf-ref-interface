@@ -137,6 +137,39 @@ export const team = cbfSchema.table(
 	(t) => [index('team_club_idx').on(t.clubId), index('team_group_idx').on(t.groupId)]
 );
 
+/** Club officials of a team as listed by team.php (`contact`), replaced on every fetch. */
+export const teamContact = cbfSchema.table(
+	'team_contact',
+	{
+		teamId: integer('team_id').notNull(),
+		/** v2 user ID of the person */
+		userId: integer('user_id').notNull(),
+		/** Function in the club (e.g. "organizační pracovník"); '' when not given. */
+		role: text('role').notNull(),
+		groupId: integer('group_id'),
+		firstName: text('first_name'),
+		lastName: text('last_name'),
+		degreePrefix: text('degree_prefix'),
+		degreeSuffix: text('degree_suffix'),
+		isMale: boolean('is_male'),
+		birthDate: date('birth_date', { mode: 'string' }),
+		street: text('street'),
+		houseNumber: text('house_number'),
+		city: text('city'),
+		zip: text('zip'),
+		phones: text('phones').array(),
+		email: text('email'),
+		validFrom: date('valid_from', { mode: 'string' }),
+		validTo: date('valid_to', { mode: 'string' }),
+		extra: jsonb('extra').$type<Json>(),
+		...timestamps()
+	},
+	(t) => [
+		primaryKey({ columns: [t.teamId, t.userId, t.role] }),
+		index('team_contact_user_idx').on(t.userId)
+	]
+);
+
 /** Team participation in a competition, with the name it played under (sponsor names change). */
 export const competitionTeam = cbfSchema.table(
 	'competition_team',
@@ -270,8 +303,6 @@ export const gameOfficial = cbfSchema.table(
 		/** Name exactly as published for this game. */
 		firstName: text('first_name'),
 		lastName: text('last_name'),
-		/** Referee evaluation from the game detail: { home, guest, commissioner } as sent by ČBF. */
-		ratings: jsonb('ratings').$type<Json>(),
 		source: text('source').notNull(),
 		observedAt: tstz('observed_at').notNull(),
 		rawPayloadId: bigint('raw_payload_id', { mode: 'number' })
