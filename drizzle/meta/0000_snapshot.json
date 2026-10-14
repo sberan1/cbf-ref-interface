@@ -1,5 +1,5 @@
 {
-  "id": "8db88bf7-b676-4baf-b74e-0bbc2a6e119d",
+  "id": "cbf056d8-fcb3-4db0-b377-5afe18c7ad7c",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -472,18 +472,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "group_id": {
-          "name": "group_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "group_name": {
-          "name": "group_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "first_seen_at": {
           "name": "first_seen_at",
           "type": "timestamp with time zone",
@@ -583,6 +571,18 @@
         "category_id": {
           "name": "category_id",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "league_id": {
+          "name": "league_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "league_name": {
+          "name": "league_name",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -881,6 +881,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "result_checked": {
+          "name": "result_checked",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attendance": {
+          "name": "attendance",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "extra": {
           "name": "extra",
           "type": "jsonb",
@@ -1050,6 +1062,12 @@
         "last_name": {
           "name": "last_name",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ratings": {
+          "name": "ratings",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -1297,6 +1315,80 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "cbf.game_team_stats": {
+      "name": "game_team_stats",
+      "schema": "cbf",
+      "columns": {
+        "game_id": {
+          "name": "game_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_guest": {
+          "name": "is_guest",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stats": {
+          "name": "stats",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "game_team_stats_game_id_game_id_fk": {
+          "name": "game_team_stats_game_id_game_id_fk",
+          "tableFrom": "game_team_stats",
+          "tableTo": "game",
+          "schemaTo": "cbf",
+          "columnsFrom": [
+            "game_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "game_team_stats_game_id_team_id_pk": {
+          "name": "game_team_stats_game_id_team_id_pk",
+          "columns": [
+            "game_id",
+            "team_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "cbf.official": {
       "name": "official",
       "schema": "cbf",
@@ -1306,6 +1398,12 @@
           "type": "integer",
           "primaryKey": true,
           "notNull": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         },
         "first_name": {
           "name": "first_name",
@@ -1340,7 +1438,23 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "official_group_idx": {
+          "name": "official_group_idx",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -1437,6 +1551,12 @@
           "primaryKey": true,
           "notNull": true
         },
+        "group_id": {
+          "name": "group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "first_name": {
           "name": "first_name",
           "type": "text",
@@ -1449,15 +1569,9 @@
           "primaryKey": false,
           "notNull": false
         },
-        "birth_year": {
-          "name": "birth_year",
+        "height": {
+          "name": "height",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "extra": {
-          "name": "extra",
-          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -1476,7 +1590,23 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "player_group_idx": {
+          "name": "player_group_idx",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -1619,6 +1749,18 @@
         "short_name": {
           "name": "short_name",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "begins_on": {
+          "name": "begins_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ends_on": {
+          "name": "ends_on",
+          "type": "date",
           "primaryKey": false,
           "notNull": false
         },
@@ -1796,6 +1938,12 @@
           "primaryKey": true,
           "notNull": true
         },
+        "group_id": {
+          "name": "group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "club_id": {
           "name": "club_id",
           "type": "integer",
@@ -1895,6 +2043,21 @@
           "columns": [
             {
               "expression": "club_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "team_group_idx": {
+          "name": "team_group_idx",
+          "columns": [
+            {
+              "expression": "group_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2025,6 +2188,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "hall_id": {
+          "name": "hall_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         },
         "name": {
           "name": "name",

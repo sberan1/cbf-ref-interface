@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { diffDelegation, type CurrentDelegation } from './delegation';
 
-const jan = { id: 1001, firstName: 'Jan', lastName: 'Novák' };
-const petr = { id: 1002, firstName: 'Petr', lastName: 'Svoboda' };
+const jan = { id: 1001, groupId: 11, firstName: 'Jan', lastName: 'Novák', ratings: null };
+const petr = { id: 1002, groupId: 12, firstName: 'Petr', lastName: 'Svoboda', ratings: null };
 const t0 = new Date('2026-10-01T10:00:00Z');
 const t1 = new Date('2026-10-02T10:00:00Z');
 

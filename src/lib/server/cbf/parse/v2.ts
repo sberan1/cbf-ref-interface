@@ -1,7 +1,7 @@
 /**
- * Parsers for the undocumented v2 export (https://www.cbf.cz/xml/api/*.php?json=1).
- * Field names come from the public clients (jknetl/CzechBasketballSchedule, ivosu/cbf_ical);
- * entries marked PROVISIONAL are guesses to be confirmed by `npm run cbf -- discover`.
+ * Parsers for the undocumented v2 export (https://cbf.cz/xml/api/*.php?json=1). Field names were
+ * verified against live samples by discovery on 2026-10-14 (seasons 2026/27 and 2012/13), see
+ * docs/agent-context/history/20261014-scaffold-cbf-ingestu.md.
  */
 import type { OfficialRole } from '../../db/schema';
 import {
@@ -13,7 +13,8 @@ import {
 	int,
 	isRec,
 	num,
-	parseScoreQuarters,
+	parseScoreTokens,
+	periodsFromCumulative,
 	pick,
 	pragueToUtc,
 	scorePair,
@@ -22,14 +23,18 @@ import {
 } from './coerce';
 import { asRecordArray, CbfParseError, decodePayload, xmlList, xmlRoot } from './payload';
 import type {
+	IdName,
 	ObservedOfficial,
 	ParsedCompetition,
 	ParsedGame,
+	ParsedGameDetail,
 	ParsedPhase,
+	ParsedPlayerGameStats,
 	ParsedRosterEntry,
 	ParsedSeason,
 	ParsedStanding,
 	ParsedTeam,
+	ParsedTeamGameStats,
 	ParsedVenue
 } from './types';
 
@@ -49,27 +54,38 @@ function jsonObject(body: string): Rec | null {
 	return payload.data;
 }
 
+function idName(idValue: unknown, nameValue: unknown): IdName | null {
+	const value = id(idValue);
+	return value === null ? null : { id: value, name: str(nameValue) };
+}
+
 export function startYearFromName(name: string | null): number | null {
 	const m = name ? /(\d{4})/.exec(name) : null;
 	return m ? Number(m[1]) : null;
 }
 
-/** seasonList.php – XML <season><IDseason/><name/><short_name/><current/></season> (or JSON). */
+/**
+ * seasonList.php – <season><IDseason/><name>2026/27</name><short_name>2026</short_name>
+ * <date_of_begin/><date_of_end/><current/></season>; with json=1 the same as a JSON array.
+ */
 export function parseV2SeasonList(body: string): ParsedSeason[] {
 	const payload = decodePayload(body);
 	let records: Rec[] = [];
 	if (payload.format === 'xml') records = xmlList(xmlRoot(payload.data).season);
 	else if (payload.format === 'json') records = asRecordArray(payload.data);
 	return records.flatMap((rec) => {
-		const seasonId = id(pick(rec, 'IDseason', 'id', 'sid'));
+		const seasonId = id(pick(rec, 'IDseason', 'sid'));
 		if (seasonId === null) return [];
-		const name = str(pick(rec, 'name', 'sname'));
+		const name = str(rec.name);
+		const shortName = str(rec.short_name);
 		return [
 			{
 				id: seasonId,
-				startYear: startYearFromName(name),
+				startYear: int(shortName) ?? startYearFromName(name),
 				name,
-				shortName: str(rec.short_name),
+				shortName,
+				beginsOn: cbfDate(rec.date_of_begin),
+				endsOn: cbfDate(rec.date_of_end),
 				isCurrent: bool01(rec.current),
 				raw: rec
 			}
@@ -77,38 +93,34 @@ export function parseV2SeasonList(body: string): ParsedSeason[] {
 	});
 }
 
-/** divs.php?season=&female=&area= – competitions (compid, cname, catid, catname, sid, sname, …). */
+/**
+ * divs.php?season=&female=&area= – competitions of one area and gender (compid, cname, catid,
+ * catname, cgid/cgname = league, sid = IDseason, area, …). Areas do not overlap.
+ */
 export function parseV2Divs(body: string): ParsedCompetition[] {
 	return jsonRecords(body).flatMap((rec) => {
-		const compId = id(pick(rec, 'compid', 'IDcompetition', 'id'));
+		const compId = id(rec.compid);
 		if (compId === null) return [];
-		const categoryId = id(rec.catid);
 		return [
 			{
 				id: compId,
-				name: str(pick(rec, 'cname', 'name')),
+				name: str(rec.cname),
 				seasonId: id(rec.sid),
 				seasonName: str(rec.sname),
+				areaId: int(rec.area),
 				isFemale: bool01(rec.female),
-				category:
-					categoryId === null
-						? null
-						: {
-								id: categoryId,
-								name: str(rec.catname),
-								groupId: id(rec.cgid),
-								groupName: str(rec.cgname)
-							},
+				category: idName(rec.catid, rec.catname),
+				league: idName(rec.cgid, rec.cgname),
 				raw: rec
 			}
 		];
 	});
 }
 
-/** phases.php?competition= – (id, name, typename, IDphaseType, IDcompetition). */
+/** phases.php?competition= – (id, name, short_cut, typename, IDphaseType, IDcompetition, …). */
 export function parseV2Phases(body: string): ParsedPhase[] {
 	return jsonRecords(body).flatMap((rec) => {
-		const phaseId = id(pick(rec, 'id', 'IDphase'));
+		const phaseId = id(rec.id);
 		if (phaseId === null) return [];
 		return [
 			{
@@ -123,30 +135,63 @@ export function parseV2Phases(body: string): ParsedPhase[] {
 	});
 }
 
-function parsePerson(rec: Rec, idKey: string, firstKey: string, lastKey: string) {
-	const personId = id(rec[idKey]);
-	if (personId === null) return null;
-	return { id: personId, firstName: str(rec[firstKey]), lastName: str(rec[lastKey]) };
-}
-
-const v2OfficialKeys: [OfficialRole, string, string, string][] = [
-	['referee1', 'u1id', 'u1n1', 'u1n2'],
-	['referee2', 'u2id', 'u2n1', 'u2n2'],
-	['referee3', 'u3id', 'u3n1', 'u3n2'],
-	['commissioner', 'commisarid', 'commisarn1', 'commisarn2']
+const v2OfficialKeys: [OfficialRole, string][] = [
+	['referee1', 'u1'],
+	['referee2', 'u2'],
+	['referee3', 'u3']
 ];
 
+/**
+ * Referees are only in game.php (`uNid`, `uNn1` first name, `uNn2` last name, `uNgroup`, ratings);
+ * games.php carries just the commissioner. `uNid = 0` with a name ("Delegováno") means the
+ * delegation exists but is not published yet → unknown, not vacant.
+ */
 function parseV2Officials(rec: Rec): ObservedOfficial[] {
-	return v2OfficialKeys
-		.filter(([, idKey]) => hasAnyKey(rec, idKey))
-		.map(([role, idKey, firstKey, lastKey]) => ({
+	const observed: ObservedOfficial[] = [];
+	for (const [role, p] of v2OfficialKeys) {
+		if (!hasAnyKey(rec, `${p}id`)) continue;
+		const personId = id(rec[`${p}id`]);
+		const firstName = str(rec[`${p}n1`]);
+		const lastName = str(rec[`${p}n2`]);
+		if (personId === null) {
+			if (firstName === null && lastName === null) observed.push({ role, official: null });
+			continue;
+		}
+		const ratings = {
+			home: rec[`rating_${p}_home`] ?? null,
+			guest: rec[`rating_${p}_guest`] ?? null,
+			commissioner: rec[`rating_${p}_commisar`] ?? null
+		};
+		observed.push({
 			role,
-			official: parsePerson(rec, idKey, firstKey, lastKey)
-		}));
+			official: {
+				id: personId,
+				groupId: id(rec[`${p}group`]),
+				firstName,
+				lastName,
+				ratings: Object.values(ratings).some((v) => v !== null && v !== '') ? ratings : null
+			}
+		});
+	}
+	if (hasAnyKey(rec, 'commisarid')) {
+		const personId = id(rec.commisarid);
+		const firstName = str(rec.commisarn1);
+		const lastName = str(rec.commisarn2);
+		if (personId !== null) {
+			observed.push({
+				role: 'commissioner',
+				official: { id: personId, groupId: null, firstName, lastName, ratings: null }
+			});
+		} else if (firstName === null && lastName === null) {
+			observed.push({ role: 'commissioner', official: null });
+		}
+	}
+	return observed;
 }
 
 function parseVenue(rec: Rec): ParsedVenue | null {
 	const venue = {
+		hallId: id(rec.IDhall),
 		name: str(rec.place),
 		street: str(rec.street),
 		city: str(rec.city),
@@ -154,17 +199,17 @@ function parseVenue(rec: Rec): ParsedVenue | null {
 		lat: num(rec.lat),
 		lon: num(rec.lon)
 	};
-	return venue.name || venue.city || venue.street ? venue : null;
+	return venue.name || venue.city ? venue : null;
 }
 
 /** One game record as found in games.php (list) and game.php (gameInfo[0]). */
 export function mapV2Game(rec: Rec): ParsedGame | null {
-	const gameId = id(pick(rec, 'IDgame', 'gid', 'id'));
+	const gameId = id(pick(rec, 'IDgame', 'gid'));
 	if (gameId === null) return null;
 	const scheduledDate = cbfDate(rec.gdate);
 	const scheduledTime = cbfTime(rec.gtime);
 	const [homeScore, awayScore] = scorePair(rec.score_home, rec.score_guest);
-	const quarters = parseScoreQuarters(rec.score_quarter);
+	const tokens = parseScoreTokens(rec.score_quarter);
 	return {
 		id: gameId,
 		phaseId: id(rec.IDphase),
@@ -174,76 +219,128 @@ export function mapV2Game(rec: Rec): ParsedGame | null {
 		scheduledDate,
 		scheduledTime,
 		startsAt: pragueToUtc(scheduledDate, scheduledTime),
-		home: { id: id(rec.taidteam), name: str(rec.taname), abbr: str(rec.taabbr) },
-		away: { id: id(rec.tbidteam), name: str(rec.tbname), abbr: str(rec.tbabbr) },
+		// taabbr is the full name too; ateams2 is the short code (UNL, PIS)
+		home: {
+			id: id(rec.taidteam),
+			groupId: id(rec.tagroupby),
+			name: str(rec.taname),
+			abbr: str(rec.ateams2)
+		},
+		away: {
+			id: id(rec.tbidteam),
+			groupId: id(rec.tbgroupby),
+			name: str(rec.tbname),
+			abbr: str(rec.bteams2)
+		},
 		homeScore,
 		awayScore,
 		homePoints: int(rec.points_home),
 		awayPoints: int(rec.points_guest),
-		quarters: homeScore === null ? quarters.filter((q) => q.home || q.away) : quarters,
+		// only complete sequences (Q1–Q3, +Q4 with overtime) are converted; others stay raw
+		quarters:
+			homeScore !== null && tokens.length >= 3
+				? periodsFromCumulative(tokens, [homeScore, awayScore])
+				: [],
 		quartersRaw: str(rec.score_quarter),
 		venue: parseVenue(rec),
 		urlLive: str(rec.url_live),
-		videoUrl: str(rec.videoIFrame),
+		videoUrl: str(pick(rec, 'embed_url', 'videoIFrame')),
 		isTv: bool01(rec.ct4),
+		resultChecked: bool01(rec.checked),
+		// ČBF sends 0 when the attendance was not reported
+		attendance: id(rec.num_visitors),
 		officials: parseV2Officials(rec),
 		raw: rec
 	};
 }
 
-/** games.php?phase= – list of games of a phase. */
+/** games.php?phase= – all games of a phase (with commissioner, without referees). */
 export function parseV2Games(body: string): ParsedGame[] {
 	return jsonRecords(body).flatMap((rec) => mapV2Game(rec) ?? []);
 }
 
-/** game.php?game= – { gameInfo: [ {...} ], …statistics (structure unverified) }. */
-export function parseV2GameDetail(body: string): { game: ParsedGame | null; payload: Rec | null } {
-	const payload = jsonObject(body);
-	if (!payload) return { game: null, payload: null };
-	const info =
-		asRecordArray(payload.gameInfo)[0] ?? (hasAnyKey(payload, 'IDgame') ? payload : null);
-	return { game: info ? mapV2Game(info) : null, payload };
+function parsePlayerStats(rec: Rec): ParsedPlayerGameStats | null {
+	const playerId = id(rec.IDuser);
+	if (playerId === null) return null;
+	return {
+		player: {
+			id: playerId,
+			groupId: id(rec.groupby),
+			firstName: str(rec.first_name),
+			lastName: str(rec.last_name)
+		},
+		teamId: id(rec.IDteam),
+		jersey: str(rec.number),
+		isGuest: bool01(rec.GUEST),
+		raw: rec
+	};
 }
 
-/** table.php?phase= – standings. Only `tid` and `cid` are confirmed; the rest is PROVISIONAL. */
+function parseTeamStats(rec: Rec): ParsedTeamGameStats | null {
+	const teamId = id(rec.IDteam);
+	if (teamId === null) return null;
+	return { teamId, groupId: id(rec.groupby), isGuest: bool01(rec.GUEST), raw: rec };
+}
+
+/** game.php?game= – { gameInfo: [game], playerStats: [...], teamStats: [...] }. */
+export function parseV2GameDetail(body: string): ParsedGameDetail {
+	const payload = jsonObject(body);
+	if (!payload) return { game: null, players: [], teams: [] };
+	const info = asRecordArray(payload.gameInfo)[0];
+	return {
+		game: info ? mapV2Game(info) : null,
+		players: asRecordArray(payload.playerStats).flatMap((r) => parsePlayerStats(r) ?? []),
+		teams: asRecordArray(payload.teamStats).flatMap((r) => parseTeamStats(r) ?? [])
+	};
+}
+
+/**
+ * table.php?phase= – standings (tid, gr/group = team group, countmatch, countwin, countloose,
+ * sumscore1/2, sumpoints = table points or win % in NBL, position, …).
+ */
 export function parseV2Table(body: string): ParsedStanding[] {
 	return jsonRecords(body).flatMap((rec) => {
-		const teamId = id(pick(rec, 'tid', 'IDteam', 'id'));
+		const teamId = id(rec.tid);
 		if (teamId === null) return [];
 		return [
 			{
 				teamId,
-				competitionId: id(pick(rec, 'cid', 'IDcompetition')),
-				teamName: str(pick(rec, 'name', 'tname', 'teamname')),
-				teamAbbr: str(pick(rec, 'abbr', 'short_name')),
-				position: int(pick(rec, 'pos', 'position', 'rank', 'poradi')),
-				gamesPlayed: int(pick(rec, 'gp', 'games', 'played')),
-				wins: int(pick(rec, 'gw', 'wins', 'won')),
-				losses: int(pick(rec, 'gl', 'losses', 'lost')),
-				pointsFor: int(pick(rec, 'sp', 'score_plus', 'pf')),
-				pointsAgainst: int(pick(rec, 'sm', 'score_minus', 'pa')),
-				points: num(pick(rec, 'pt', 'points', 'pts')),
+				teamGroupId: id(pick(rec, 'group', 'gr')),
+				competitionId: id(rec.cid),
+				teamName: str(rec.tname),
+				teamAbbr: str(rec.abbr),
+				position: int(rec.position),
+				gamesPlayed: int(rec.countmatch),
+				wins: int(rec.countwin),
+				losses: int(rec.countloose),
+				pointsFor: int(rec.sumscore1),
+				pointsAgainst: int(rec.sumscore2),
+				points: num(rec.sumpoints),
 				raw: rec
 			}
 		];
 	});
 }
 
-/** team.php?id=&competition= – { info: [ team ], match: [ … ] }. */
+/**
+ * team.php?id=&competition= – { info: [team], contact: [...], match: [...], matchaggr: [...] }.
+ * `contact` holds club officials' personal data (birth dates, addresses) and is deliberately not
+ * normalized; it stays only in the raw payload.
+ */
 export function parseV2Team(body: string): ParsedTeam | null {
 	const payload = jsonObject(body);
 	if (!payload) return null;
 	const rec = asRecordArray(payload.info)[0];
 	if (!rec) return null;
-	const teamId = id(pick(rec, 'IDteam', 'id'));
+	const teamId = id(rec.IDteam);
 	if (teamId === null) return null;
-	const clubId = id(rec.IDclub);
 	const isMale = bool01(rec.is_male);
 	return {
 		id: teamId,
+		groupId: id(rec.groupby),
 		name: str(rec.name),
 		shortName: str(rec.short_name),
-		abbr: str(rec.abbr),
+		abbr: str(rec.short_name2),
 		isFemale: isMale === null ? null : !isMale,
 		web: str(rec.www),
 		email: str(rec.email),
@@ -252,31 +349,31 @@ export function parseV2Team(body: string): ParsedTeam | null {
 		zip: str(rec.psc),
 		phones: [str(rec.phone_1), str(rec.phone_2)].filter((p): p is string => p !== null),
 		categoryId: id(rec.IDcategory),
-		club: clubId === null ? null : { id: clubId, name: str(rec.clubname) },
+		club: idName(rec.IDclub, rec.clubname),
 		raw: rec
 	};
 }
 
-/** teamplayers.php?id=&competition= – PROVISIONAL mapping, structure not verified at all. */
+/**
+ * teamplayers.php?id=&competition= – { info: [team], playerstatcount: [player + season stats],
+ * playerstatcounttotal, playerstatcountpercent, ztotal }.
+ */
 export function parseV2TeamPlayers(body: string): ParsedRosterEntry[] {
-	const payload = decodePayload(body);
-	if (payload.format !== 'json') return [];
-	const data = payload.data;
-	const records = isRec(data)
-		? asRecordArray(pick(data, 'players', 'player', 'data') ?? data)
-		: asRecordArray(data);
-	return records.flatMap((rec) => {
-		const playerId = id(pick(rec, 'IDplayer', 'IDperson', 'pid', 'id'));
+	const payload = jsonObject(body);
+	if (!payload) return [];
+	return asRecordArray(payload.playerstatcount).flatMap((rec) => {
+		const playerId = id(rec.IDplayer);
 		if (playerId === null) return [];
 		return [
 			{
 				player: {
 					id: playerId,
-					firstName: str(pick(rec, 'firstname', 'fname', 'name1', 'n1')),
-					lastName: str(pick(rec, 'lastname', 'lname', 'surname', 'name2', 'n2')),
-					birthYear: int(pick(rec, 'birthyear', 'born', 'year'))
+					groupId: id(rec.groupby),
+					firstName: str(rec.first_name),
+					lastName: str(rec.last_name),
+					height: id(rec.height)
 				},
-				jersey: str(pick(rec, 'number', 'num', 'jersey', 'dres')),
+				jersey: str(rec.num_of_dress),
 				raw: rec
 			}
 		];

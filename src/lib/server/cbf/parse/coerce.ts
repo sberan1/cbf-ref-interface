@@ -125,19 +125,46 @@ export function pragueToUtc(date: string | null, time: string | null): Date | nu
 
 export interface PeriodScore {
 	period: number;
-	home: number | null;
-	away: number | null;
+	home: number;
+	away: number;
 }
 
-/** Parses "20:18 15:22 17:20 19:15" (v2 score_quarter) into periods 1..n. */
-export function parseScoreQuarters(value: unknown): PeriodScore[] {
+export type ScorePair = [number, number];
+
+/** Parses the v2 `score_quarter` string "13:8 32:26 58:48" into score pairs. */
+export function parseScoreTokens(value: unknown): ScorePair[] {
 	const s = str(value);
 	if (!s) return [];
-	const periods: PeriodScore[] = [];
+	const pairs: ScorePair[] = [];
 	for (const token of s.split(/[\s,;]+/)) {
 		const m = /^(\d+)\s*:\s*(\d+)$/.exec(token);
-		if (!m) continue;
-		periods.push({ period: periods.length + 1, home: Number(m[1]), away: Number(m[2]) });
+		if (m) pairs.push([Number(m[1]), Number(m[2])]);
+	}
+	return pairs;
+}
+
+/**
+ * ČBF publishes the running score after each period ("13:8 32:26 58:48" = after Q1, Q2, Q3; with
+ * overtime also after Q4) and the final score separately, in both v2 `score_quarter` and v1
+ * `<partials>`. Converts it into points per period; overtimes end up together in period 5.
+ * Returns [] when the sequence is not cumulative (inconsistent data).
+ */
+export function periodsFromCumulative(
+	cumulative: ScorePair[],
+	final: [number | null, number | null]
+): PeriodScore[] {
+	const points = [...cumulative];
+	const [fh, fa] = final;
+	const last = points.at(-1);
+	if (fh !== null && fa !== null && (!last || last[0] !== fh || last[1] !== fa)) {
+		points.push([fh, fa]);
+	}
+	const periods: PeriodScore[] = [];
+	let prev: ScorePair = [0, 0];
+	for (const [h, a] of points) {
+		if (h < prev[0] || a < prev[1]) return [];
+		periods.push({ period: periods.length + 1, home: h - prev[0], away: a - prev[1] });
+		prev = [h, a];
 	}
 	return periods;
 }

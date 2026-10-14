@@ -1,7 +1,8 @@
 /**
  * Normalized mirror of ČBF data (ADR 0001, 0004).
  *
- * - Primary keys are ČBF IDs wherever ČBF has one (assumption: v1 and v2 share the ID space).
+ * - Primary keys are v2 IDs of ČBF. v1 shares IDs of competitions, phases and games, but uses
+ *   "group" IDs for people and teams (v2 `uNgroup` / `groupby`), stored in `group_id` columns.
  * - Cross-aggregate references (game → phase, phase → competition, …) are indexed columns without
  *   FK constraints: payloads arrive in any order and are re-normalized independently.
  *   FKs exist only inside an aggregate written in one transaction (game → quarters/officials).
@@ -40,10 +41,12 @@ export const season = cbfSchema.table(
 	'season',
 	{
 		id: integer('id').primaryKey(),
-		/** Year as accepted by the `season` / `s` request parameter (assumed: start year). */
+		/** Start year = value of the `season` / `s` request parameter (verified by discovery). */
 		startYear: integer('start_year'),
 		name: text('name'),
 		shortName: text('short_name'),
+		beginsOn: date('begins_on', { mode: 'string' }),
+		endsOn: date('ends_on', { mode: 'string' }),
 		isCurrent: boolean('is_current'),
 		extra: jsonb('extra').$type<Json>(),
 		...timestamps()
@@ -52,17 +55,16 @@ export const season = cbfSchema.table(
 );
 
 export const area = cbfSchema.table('area', {
-	/** 0 = national (celostátní), 1–14 = regional associations. */
+	/** 0 = national (celostátní), 1–14 = regional associations (2026: 1–8 and 12 in use). */
 	id: integer('id').primaryKey(),
 	name: text('name'),
 	...timestamps()
 });
 
+/** Age/gender category (muži, U19M, …). */
 export const category = cbfSchema.table('category', {
 	id: integer('id').primaryKey(),
 	name: text('name'),
-	groupId: integer('group_id'),
-	groupName: text('group_name'),
 	...timestamps()
 });
 
@@ -75,6 +77,9 @@ export const competition = cbfSchema.table(
 		areaId: integer('area_id'),
 		isFemale: boolean('is_female'),
 		categoryId: integer('category_id'),
+		/** League / competition group (v2 `cgid` / `cgname`, v1 `<league>`), e.g. NBL, Oblasti. */
+		leagueId: integer('league_id'),
+		leagueName: text('league_name'),
 		name: text('name'),
 		/** v1 flags (public, finished, refeval, sups, …) as booleans. */
 		flags: jsonb('flags').$type<Record<string, boolean | null>>(),
@@ -112,6 +117,8 @@ export const team = cbfSchema.table(
 	'team',
 	{
 		id: integer('id').primaryKey(),
+		/** Team lineage across seasons (v2 `groupby`, = team ID in v1 sched.php). */
+		groupId: integer('group_id'),
 		clubId: integer('club_id'),
 		categoryId: integer('category_id'),
 		name: text('name'),
@@ -127,7 +134,7 @@ export const team = cbfSchema.table(
 		extra: jsonb('extra').$type<Json>(),
 		...timestamps()
 	},
-	(t) => [index('team_club_idx').on(t.clubId)]
+	(t) => [index('team_club_idx').on(t.clubId), index('team_group_idx').on(t.groupId)]
 );
 
 /** Team participation in a competition, with the name it played under (sponsor names change). */
@@ -146,10 +153,14 @@ export const competitionTeam = cbfSchema.table(
 	]
 );
 
-/** ČBF has no venue ID; venues are identified by a normalized name|street|city key. */
+/**
+ * Venues are keyed by normalized name|city, the only fields present in every source (games list,
+ * game detail, v1 sched); the hall ID (`IDhall`) is known only from game detail.
+ */
 export const venue = cbfSchema.table('venue', {
 	id: serial('id').primaryKey(),
 	naturalKey: text('natural_key').notNull().unique(),
+	hallId: integer('hall_id'),
 	name: text('name'),
 	street: text('street'),
 	city: text('city'),
@@ -189,6 +200,9 @@ export const game = cbfSchema.table(
 		urlLive: text('url_live'),
 		videoUrl: text('video_url'),
 		isTv: boolean('is_tv'),
+		/** Result confirmed by ČBF (`checked`). */
+		resultChecked: boolean('result_checked'),
+		attendance: integer('attendance'),
 		extra: jsonb('extra').$type<Json>(),
 		extraV1: jsonb('extra_v1').$type<Json>(),
 		/** Fetch time of the v2 payload the row reflects; older payloads never overwrite newer ones. */
@@ -205,7 +219,10 @@ export const game = cbfSchema.table(
 	]
 );
 
-/** Period scores; periods 1–4 are quarters, 5+ overtimes. */
+/**
+ * Points scored per period, derived from the cumulative `score_quarter` + final score.
+ * Periods 1–4 are quarters; period 5 holds all overtimes together (ČBF does not split them).
+ */
 export const gameScoreQuarter = cbfSchema.table(
 	'game_score_quarter',
 	{
@@ -219,14 +236,22 @@ export const gameScoreQuarter = cbfSchema.table(
 	(t) => [primaryKey({ columns: [t.gameId, t.period] })]
 );
 
-/** Referees and commissioners (ID space of `u1id` / `commisarid`; stability across seasons unverified). */
-export const official = cbfSchema.table('official', {
-	id: integer('id').primaryKey(),
-	firstName: text('first_name'),
-	lastName: text('last_name'),
-	lastSeenAt: tstz('last_seen_at'),
-	...timestamps()
-});
+/**
+ * Referees and commissioners. `id` = v2 user ID (`uNid` / `commisarid`), stable across seasons
+ * (verified on 2012 vs 2026 samples). `group_id` = canonical person ID used by v1 (`uNgroup`).
+ */
+export const official = cbfSchema.table(
+	'official',
+	{
+		id: integer('id').primaryKey(),
+		groupId: integer('group_id'),
+		firstName: text('first_name'),
+		lastName: text('last_name'),
+		lastSeenAt: tstz('last_seen_at'),
+		...timestamps()
+	},
+	(t) => [index('official_group_idx').on(t.groupId)]
+);
 
 export const officialRoles = ['referee1', 'referee2', 'referee3', 'commissioner'] as const;
 export type OfficialRole = (typeof officialRoles)[number];
@@ -245,6 +270,8 @@ export const gameOfficial = cbfSchema.table(
 		/** Name exactly as published for this game. */
 		firstName: text('first_name'),
 		lastName: text('last_name'),
+		/** Referee evaluation from the game detail: { home, guest, commissioner } as sent by ČBF. */
+		ratings: jsonb('ratings').$type<Json>(),
 		source: text('source').notNull(),
 		observedAt: tstz('observed_at').notNull(),
 		rawPayloadId: bigint('raw_payload_id', { mode: 'number' })
@@ -265,7 +292,7 @@ export const gameOfficialHistory = cbfSchema.table(
 		changeType: text('change_type').$type<'assigned' | 'replaced' | 'removed'>().notNull(),
 		officialId: integer('official_id'),
 		previousOfficialId: integer('previous_official_id'),
-		/** True for the first delegation ever observed for the game (not a real change). */
+		/** True for the first official ever observed in this role of the game (not a real change). */
 		isInitial: boolean('is_initial').notNull(),
 		source: text('source').notNull(),
 		observedAt: tstz('observed_at').notNull(),
@@ -299,14 +326,19 @@ export const standing = cbfSchema.table(
 	(t) => [primaryKey({ columns: [t.phaseId, t.teamId] })]
 );
 
-export const player = cbfSchema.table('player', {
-	id: integer('id').primaryKey(),
-	firstName: text('first_name'),
-	lastName: text('last_name'),
-	birthYear: integer('birth_year'),
-	extra: jsonb('extra').$type<Json>(),
-	...timestamps()
-});
+/** Players; `id` = v2 user ID (`IDplayer` / `IDuser`), `group_id` = canonical person (`groupby`). */
+export const player = cbfSchema.table(
+	'player',
+	{
+		id: integer('id').primaryKey(),
+		groupId: integer('group_id'),
+		firstName: text('first_name'),
+		lastName: text('last_name'),
+		height: integer('height'),
+		...timestamps()
+	},
+	(t) => [index('player_group_idx').on(t.groupId)]
+);
 
 /** Roster entry from teamplayers.php, including the competition stats it returns. */
 export const teamPlayer = cbfSchema.table(
@@ -327,7 +359,7 @@ export const teamPlayer = cbfSchema.table(
 	]
 );
 
-/** Per-game player statistics; filled once discovery confirms the game.php stats structure. */
+/** Per-game player box score from game.php `playerStats` (ČBF codes, e.g. ZS2PP = 2PT made). */
 export const playerGameStats = cbfSchema.table(
 	'player_game_stats',
 	{
@@ -346,4 +378,19 @@ export const playerGameStats = cbfSchema.table(
 		primaryKey({ columns: [t.gameId, t.playerId] }),
 		index('player_game_stats_player_idx').on(t.playerId)
 	]
+);
+
+/** Per-game team box score from game.php `teamStats`. */
+export const gameTeamStats = cbfSchema.table(
+	'game_team_stats',
+	{
+		gameId: integer('game_id')
+			.notNull()
+			.references(() => game.id, { onDelete: 'cascade' }),
+		teamId: integer('team_id').notNull(),
+		isGuest: boolean('is_guest'),
+		stats: jsonb('stats').$type<Json>(),
+		...timestamps()
+	},
+	(t) => [primaryKey({ columns: [t.gameId, t.teamId] })]
 );

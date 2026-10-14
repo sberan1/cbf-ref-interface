@@ -6,7 +6,8 @@ import {
 	id,
 	int,
 	num,
-	parseScoreQuarters,
+	parseScoreTokens,
+	periodsFromCumulative,
 	pragueToUtc,
 	scorePair,
 	str
@@ -67,16 +68,27 @@ describe('dates and times', () => {
 });
 
 describe('scores', () => {
-	it('parses the v2 score_quarter string including overtime', () => {
-		expect(parseScoreQuarters('20:18 15:22  17:20 19:15 10:8')).toEqual([
-			{ period: 1, home: 20, away: 18 },
-			{ period: 2, home: 15, away: 22 },
-			{ period: 3, home: 17, away: 20 },
-			{ period: 4, home: 19, away: 15 },
-			{ period: 5, home: 10, away: 8 }
+	it('turns the cumulative score_quarter + final score into points per period', () => {
+		// real shape: running score after Q1, Q2, Q3; the final score is separate
+		expect(periodsFromCumulative(parseScoreTokens('13:8 32:26 58:48'), [78, 80])).toEqual([
+			{ period: 1, home: 13, away: 8 },
+			{ period: 2, home: 19, away: 18 },
+			{ period: 3, home: 26, away: 22 },
+			{ period: 4, home: 20, away: 32 }
 		]);
-		expect(parseScoreQuarters('')).toEqual([]);
-		expect(parseScoreQuarters(null)).toEqual([]);
+	});
+
+	it('puts overtime into period 5', () => {
+		const periods = periodsFromCumulative(parseScoreTokens('26:15 47:36 72:49 83:83'), [99, 93]);
+		expect(periods).toHaveLength(5);
+		expect(periods[3]).toEqual({ period: 4, home: 11, away: 34 });
+		expect(periods[4]).toEqual({ period: 5, home: 16, away: 10 });
+	});
+
+	it('rejects sequences that are not cumulative', () => {
+		expect(periodsFromCumulative(parseScoreTokens('20:18 15:22 17:20'), [52, 60])).toEqual([]);
+		expect(parseScoreTokens('')).toEqual([]);
+		expect(parseScoreTokens(null)).toEqual([]);
 	});
 
 	it('maps 0:0 to "not played"', () => {

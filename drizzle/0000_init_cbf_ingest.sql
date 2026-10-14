@@ -65,8 +65,6 @@ CREATE TABLE "cbf"."area" (
 CREATE TABLE "cbf"."category" (
 	"id" integer PRIMARY KEY NOT NULL,
 	"name" text,
-	"group_id" integer,
-	"group_name" text,
 	"first_seen_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -85,6 +83,8 @@ CREATE TABLE "cbf"."competition" (
 	"area_id" integer,
 	"is_female" boolean,
 	"category_id" integer,
+	"league_id" integer,
+	"league_name" text,
 	"name" text,
 	"flags" jsonb,
 	"extra" jsonb,
@@ -127,6 +127,8 @@ CREATE TABLE "cbf"."game" (
 	"url_live" text,
 	"video_url" text,
 	"is_tv" boolean,
+	"result_checked" boolean,
+	"attendance" integer,
 	"extra" jsonb,
 	"extra_v1" jsonb,
 	"observed_at" timestamp with time zone,
@@ -141,6 +143,7 @@ CREATE TABLE "cbf"."game_official" (
 	"official_id" integer NOT NULL,
 	"first_name" text,
 	"last_name" text,
+	"ratings" jsonb,
 	"source" text NOT NULL,
 	"observed_at" timestamp with time zone NOT NULL,
 	"raw_payload_id" bigint,
@@ -168,8 +171,19 @@ CREATE TABLE "cbf"."game_score_quarter" (
 	CONSTRAINT "game_score_quarter_game_id_period_pk" PRIMARY KEY("game_id","period")
 );
 --> statement-breakpoint
+CREATE TABLE "cbf"."game_team_stats" (
+	"game_id" integer NOT NULL,
+	"team_id" integer NOT NULL,
+	"is_guest" boolean,
+	"stats" jsonb,
+	"first_seen_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "game_team_stats_game_id_team_id_pk" PRIMARY KEY("game_id","team_id")
+);
+--> statement-breakpoint
 CREATE TABLE "cbf"."official" (
 	"id" integer PRIMARY KEY NOT NULL,
+	"group_id" integer,
 	"first_name" text,
 	"last_name" text,
 	"last_seen_at" timestamp with time zone,
@@ -190,10 +204,10 @@ CREATE TABLE "cbf"."phase" (
 --> statement-breakpoint
 CREATE TABLE "cbf"."player" (
 	"id" integer PRIMARY KEY NOT NULL,
+	"group_id" integer,
 	"first_name" text,
 	"last_name" text,
-	"birth_year" integer,
-	"extra" jsonb,
+	"height" integer,
 	"first_seen_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -214,6 +228,8 @@ CREATE TABLE "cbf"."season" (
 	"start_year" integer,
 	"name" text,
 	"short_name" text,
+	"begins_on" date,
+	"ends_on" date,
 	"is_current" boolean,
 	"extra" jsonb,
 	"first_seen_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -241,6 +257,7 @@ CREATE TABLE "cbf"."standing" (
 --> statement-breakpoint
 CREATE TABLE "cbf"."team" (
 	"id" integer PRIMARY KEY NOT NULL,
+	"group_id" integer,
 	"club_id" integer,
 	"category_id" integer,
 	"name" text,
@@ -272,6 +289,7 @@ CREATE TABLE "cbf"."team_player" (
 CREATE TABLE "cbf"."venue" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"natural_key" text NOT NULL,
+	"hall_id" integer,
 	"name" text,
 	"street" text,
 	"city" text,
@@ -288,6 +306,7 @@ ALTER TABLE "cbf"."game" ADD CONSTRAINT "game_venue_id_venue_id_fk" FOREIGN KEY 
 ALTER TABLE "cbf"."game_official" ADD CONSTRAINT "game_official_game_id_game_id_fk" FOREIGN KEY ("game_id") REFERENCES "cbf"."game"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "cbf"."game_official" ADD CONSTRAINT "game_official_official_id_official_id_fk" FOREIGN KEY ("official_id") REFERENCES "cbf"."official"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "cbf"."game_score_quarter" ADD CONSTRAINT "game_score_quarter_game_id_game_id_fk" FOREIGN KEY ("game_id") REFERENCES "cbf"."game"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "cbf"."game_team_stats" ADD CONSTRAINT "game_team_stats_game_id_game_id_fk" FOREIGN KEY ("game_id") REFERENCES "cbf"."game"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "cbf"."player_game_stats" ADD CONSTRAINT "player_game_stats_game_id_game_id_fk" FOREIGN KEY ("game_id") REFERENCES "cbf"."game"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "cbf"."player_game_stats" ADD CONSTRAINT "player_game_stats_player_id_player_id_fk" FOREIGN KEY ("player_id") REFERENCES "cbf"."player"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "cbf"."team_player" ADD CONSTRAINT "team_player_player_id_player_id_fk" FOREIGN KEY ("player_id") REFERENCES "cbf"."player"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -307,8 +326,11 @@ CREATE INDEX "game_away_team_idx" ON "cbf"."game" USING btree ("away_team_id");-
 CREATE INDEX "game_official_official_idx" ON "cbf"."game_official" USING btree ("official_id");--> statement-breakpoint
 CREATE INDEX "game_official_history_game_idx" ON "cbf"."game_official_history" USING btree ("game_id");--> statement-breakpoint
 CREATE INDEX "game_official_history_official_idx" ON "cbf"."game_official_history" USING btree ("official_id");--> statement-breakpoint
+CREATE INDEX "official_group_idx" ON "cbf"."official" USING btree ("group_id");--> statement-breakpoint
 CREATE INDEX "phase_competition_idx" ON "cbf"."phase" USING btree ("competition_id");--> statement-breakpoint
+CREATE INDEX "player_group_idx" ON "cbf"."player" USING btree ("group_id");--> statement-breakpoint
 CREATE INDEX "player_game_stats_player_idx" ON "cbf"."player_game_stats" USING btree ("player_id");--> statement-breakpoint
 CREATE INDEX "season_start_year_idx" ON "cbf"."season" USING btree ("start_year");--> statement-breakpoint
 CREATE INDEX "team_club_idx" ON "cbf"."team" USING btree ("club_id");--> statement-breakpoint
+CREATE INDEX "team_group_idx" ON "cbf"."team" USING btree ("group_id");--> statement-breakpoint
 CREATE INDEX "team_player_player_idx" ON "cbf"."team_player" USING btree ("player_id");

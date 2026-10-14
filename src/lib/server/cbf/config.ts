@@ -5,7 +5,8 @@ const intFromEnv = (fallback: number) => z.coerce.number().int().min(0).default(
 const envSchema = z.object({
 	DATABASE_URL: z.string().min(1).optional(),
 	AMQP_URL: z.string().min(1).default('amqp://guest:guest@localhost:5672'),
-	CBF_BASE_URL: z.url().default('https://www.cbf.cz/xml/'),
+	// public clients use both cbf.cz and www.cbf.cz; cbf.cz is the host verified by discovery
+	CBF_BASE_URL: z.url().default('https://cbf.cz/xml/'),
 	CBF_USER_AGENT: z
 		.string()
 		.min(1)

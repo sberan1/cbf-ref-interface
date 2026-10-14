@@ -1,5 +1,5 @@
-// Fixtures are synthetic, modelled on the field names used by public clients; the real export
-// structure is verified by `npm run cbf -- discover`.
+// Fixtures follow the structure of live samples (discovery 2026-10-14); IDs and names of people
+// are made up.
 import { describe, expect, it } from 'vitest';
 import {
 	parseV2Divs,
@@ -7,140 +7,306 @@ import {
 	parseV2Games,
 	parseV2Phases,
 	parseV2SeasonList,
-	parseV2Team
+	parseV2Table,
+	parseV2Team,
+	parseV2TeamPlayers
 } from './v2';
 
-const gameRecord = {
-	IDgame: '273093',
-	IDphase: '4451',
-	IDcompetition: '2097',
+/** games.php record: carries the commissioner, but no referees. */
+const listRecord = {
+	time_of_action: '2026-09-20 18:00:00',
+	IDgame: '544546',
+	IDphase: '10310',
+	IDunderPhase: null,
 	round: '1',
-	num: 'A001',
-	gdate: '2026-10-03',
+	num: '1',
+	IDcompetition: '5402',
+	gdate: '2026-09-20',
 	gtime: '18:00:00',
-	score_home: '81',
-	score_guest: '77',
-	points_home: '2',
-	points_guest: '1',
-	score_quarter: '20:18 15:22 27:20 19:17',
-	taidteam: '7046',
-	taname: 'BK Domácí',
-	taabbr: 'DOM',
-	tbidteam: '7047',
-	tbname: 'BK Hosté',
-	tbabbr: 'HOS',
-	place: 'Sportovní hala',
-	street: 'Hlavní 1',
-	city: 'Nymburk',
-	zipcode: '28802',
-	lat: '50.18',
-	lon: '15.04',
-	u1id: '1001',
+	points_home: '1',
+	points_guest: '2',
+	score_home: '78',
+	score_guest: '80',
+	score_quarter: '13:8 32:26 58:48',
+	url_live: 'https://example.invalid/live',
+	embed_url: 'https://example.invalid/embed',
+	ct4: '0',
+	tagroupby: '9',
+	taidteam: '7001',
+	taname: 'SLUNETA  Ústí nad Labem',
+	taabbr: 'SLUNETA Ústí nad Labem',
+	tbgroupby: '421',
+	tbidteam: '10110',
+	tbname: 'Sršni Photomate Písek',
+	tbabbr: 'Sršni Photomate Písek',
+	ateams2: 'UNL',
+	bteams2: 'PIS',
+	commisarid: '50001',
+	commisarn1: 'Eva',
+	commisarn2: 'Dvořáková',
+	place: 'Sportcentrum SLUNETA',
+	city: 'Ústí nad Labem',
+	lat: '50.66531830',
+	lon: '14.01285350'
+};
+
+/** game.php gameInfo record: the list fields plus referees, ratings, hall and street. */
+const detailRecord = {
+	...listRecord,
+	checked: '1',
+	num_visitors: '1107',
+	IDhall: '245',
+	street: 'Jateční 18',
+	zipcode: '40001',
+	u1id: '50010',
 	u1n1: 'Jan',
 	u1n2: 'Novák',
-	u2id: '1002',
+	u1group: '2001',
+	u2id: '50011',
 	u2n1: 'Petr',
 	u2n2: 'Svoboda',
+	u2group: '50011',
 	u3id: '0',
 	u3n1: '',
 	u3n2: '',
-	commisarid: '2001',
-	commisarn1: 'Eva',
-	commisarn2: 'Dvořáková',
-	url_live: 'https://example.invalid/live',
-	ct4: '0'
+	u3group: '0',
+	rating_u1_home: '8',
+	rating_u1_guest: null,
+	rating_u1_commisar: null,
+	rating_u2_home: null,
+	rating_u2_guest: null,
+	rating_u2_commisar: null
 };
 
 describe('v2 parsers', () => {
-	it('parses competitions', () => {
+	it('parses competitions with area and league', () => {
 		const body = JSON.stringify([
 			{
-				compid: '2097',
-				cname: 'Kooperativa NBL',
-				catid: '1',
-				catname: 'Muži',
-				sid: '20',
-				female: '0'
+				compid: '5402',
+				cname: 'Maxa NBL',
+				catid: '1634',
+				catname: 'muži',
+				cgid: '2833',
+				cgname: 'NBL',
+				sid: '36',
+				sname: '2026/27',
+				season_short_name: '2026',
+				female: '0',
+				area: '0'
 			},
 			{ cname: 'bez ID' }
 		]);
 		const [c, ...rest] = parseV2Divs(body);
 		expect(rest).toHaveLength(0);
-		expect(c).toMatchObject({ id: 2097, name: 'Kooperativa NBL', seasonId: 20, isFemale: false });
-		expect(c.category).toMatchObject({ id: 1, name: 'Muži' });
+		expect(c).toMatchObject({
+			id: 5402,
+			seasonId: 36,
+			areaId: 0,
+			isFemale: false,
+			category: { id: 1634, name: 'muži' },
+			league: { id: 2833, name: 'NBL' }
+		});
 	});
 
 	it('accepts PHP assoc-array JSON and empty bodies', () => {
-		expect(parseV2Phases(JSON.stringify({ a: { id: '1', name: 'Základní část' } }))).toHaveLength(
-			1
-		);
+		expect(
+			parseV2Phases(JSON.stringify({ a: { id: '10310', name: 'Základní část' } }))
+		).toHaveLength(1);
 		expect(parseV2Phases('')).toEqual([]);
-		expect(parseV2Phases('null')).toEqual([]);
+		expect(parseV2Phases('[]')).toEqual([]);
 	});
 
-	it('maps a game including officials, venue and quarters', () => {
-		const [g] = parseV2Games(JSON.stringify([gameRecord]));
+	it('maps a games.php record: commissioner only, cumulative quarters, short codes', () => {
+		const [g] = parseV2Games(JSON.stringify([listRecord]));
 		expect(g).toMatchObject({
-			id: 273093,
-			phaseId: 4451,
-			competitionId: 2097,
-			homeScore: 81,
-			awayScore: 77,
-			startsAt: new Date('2026-10-03T16:00:00.000Z'),
-			home: { id: 7046, abbr: 'DOM' },
-			venue: { city: 'Nymburk', lat: 50.18 }
+			id: 544546,
+			phaseId: 10310,
+			competitionId: 5402,
+			homeScore: 78,
+			awayScore: 80,
+			startsAt: new Date('2026-09-20T16:00:00.000Z'),
+			home: { id: 7001, groupId: 9, abbr: 'UNL' },
+			away: { id: 10110, groupId: 421, abbr: 'PIS' },
+			venue: { hallId: null, name: 'Sportcentrum SLUNETA', lat: 50.6653183 }
 		});
-		expect(g.quarters).toHaveLength(4);
+		expect(g.quarters.map((q) => [q.home, q.away])).toEqual([
+			[13, 8],
+			[19, 18],
+			[26, 22],
+			[20, 32]
+		]);
 		expect(g.officials).toEqual([
-			{ role: 'referee1', official: { id: 1001, firstName: 'Jan', lastName: 'Novák' } },
-			{ role: 'referee2', official: { id: 1002, firstName: 'Petr', lastName: 'Svoboda' } },
-			{ role: 'referee3', official: null },
-			{ role: 'commissioner', official: { id: 2001, firstName: 'Eva', lastName: 'Dvořáková' } }
+			{
+				role: 'commissioner',
+				official: {
+					id: 50001,
+					groupId: null,
+					firstName: 'Eva',
+					lastName: 'Dvořáková',
+					ratings: null
+				}
+			}
 		]);
 	});
 
-	it('does not report roles that the payload does not carry', () => {
-		const partial: Partial<typeof gameRecord> = { ...gameRecord };
-		delete partial.u3id;
-		delete partial.commisarid;
-		const [g] = parseV2Games(JSON.stringify([partial]));
-		expect(g.officials.map((o) => o.role)).toEqual(['referee1', 'referee2']);
+	it('maps game.php with referees, ratings, vacancy and box score', () => {
+		const detail = parseV2GameDetail(
+			JSON.stringify({
+				gameInfo: [detailRecord],
+				playerStats: [
+					{
+						IDuser: '143628',
+						groupby: '143628',
+						first_name: 'Adam',
+						last_name: 'Hráč',
+						IDteam: '7001',
+						number: '7',
+						GUEST: '0',
+						PTS: '16'
+					}
+				],
+				teamStats: [{ IDteam: '7001', groupby: '9', GUEST: '0', PTS_P: '78' }]
+			})
+		);
+		expect(detail.game).toMatchObject({
+			resultChecked: true,
+			attendance: 1107,
+			venue: { hallId: 245, street: 'Jateční 18' }
+		});
+		expect(
+			detail.game?.officials.map((o) => [o.role, o.official?.id, o.official?.groupId])
+		).toEqual([
+			['referee1', 50010, 2001],
+			['referee2', 50011, 50011],
+			['referee3', undefined, undefined],
+			['commissioner', 50001, null]
+		]);
+		expect(detail.game?.officials[0].official?.ratings).toEqual({
+			home: '8',
+			guest: null,
+			commissioner: null
+		});
+		expect(detail.game?.officials[1].official?.ratings).toBeNull();
+		expect(detail.players).toMatchObject([
+			{ player: { id: 143628, groupId: 143628 }, teamId: 7001, jersey: '7', isGuest: false }
+		]);
+		expect(detail.teams).toMatchObject([{ teamId: 7001, groupId: 9, isGuest: false }]);
 	});
 
-	it('reads game detail from gameInfo[0]', () => {
-		const { game } = parseV2GameDetail(JSON.stringify({ gameInfo: [gameRecord], stats: [] }));
-		expect(game?.id).toBe(273093);
+	it('treats a hidden delegation ("Delegováno", ID 0) as unknown, not vacant', () => {
+		const hidden = {
+			...detailRecord,
+			score_home: null,
+			score_guest: null,
+			score_quarter: null,
+			u1id: '0',
+			u1n1: '',
+			u1n2: 'Delegováno',
+			u2id: '0',
+			u2n1: '',
+			u2n2: 'Delegováno'
+		};
+		const { game } = parseV2GameDetail(JSON.stringify({ gameInfo: [hidden] }));
+		expect(game?.homeScore).toBeNull();
+		expect(game?.quarters).toEqual([]);
+		expect(game?.officials.map((o) => [o.role, o.official?.id ?? null])).toEqual([
+			['referee3', null],
+			['commissioner', 50001]
+		]);
 	});
 
-	it('parses seasonList in XML', () => {
+	it('parses seasonList in XML and JSON', () => {
 		const xml = `<?xml version="1.0" encoding="utf-8"?><seasons>
-			<season><IDseason>20</IDseason><name>2026/2027</name><short_name>26/27</short_name><current>1</current></season>
-			<season><IDseason>19</IDseason><name>2025/2026</name><current>0</current></season></seasons>`;
+			<season><IDseason>36</IDseason><name>2026/27</name><short_name>2026</short_name>
+				<date_of_begin>2026-05-01</date_of_begin><date_of_end>2027-05-31</date_of_end><current>1</current></season>
+			<season><IDseason>1</IDseason><name>1992/93</name><short_name>1992</short_name><current>0</current></season></seasons>`;
 		expect(parseV2SeasonList(xml)).toMatchObject([
-			{ id: 20, startYear: 2026, isCurrent: true },
-			{ id: 19, startYear: 2025, isCurrent: false }
+			{ id: 36, startYear: 2026, beginsOn: '2026-05-01', endsOn: '2027-05-31', isCurrent: true },
+			{ id: 1, startYear: 1992, isCurrent: false }
+		]);
+		const json = JSON.stringify([{ IDseason: '22', name: '2012/13', short_name: '2012' }]);
+		expect(parseV2SeasonList(json)).toMatchObject([{ id: 22, startYear: 2012 }]);
+	});
+
+	it('parses standings', () => {
+		const body = JSON.stringify([
+			{
+				tid: '14787',
+				cid: '5402',
+				tname: 'SK Slavia Praha',
+				abbr: 'SK Slavia Praha',
+				gr: '13466',
+				countmatch: '6',
+				countwin: '6',
+				countloose: '0',
+				sumscore1: '604',
+				sumscore2: '454',
+				sumpoints: '100.0',
+				position: 1,
+				group: 13466
+			}
+		]);
+		expect(parseV2Table(body)).toMatchObject([
+			{
+				teamId: 14787,
+				teamGroupId: 13466,
+				position: 1,
+				gamesPlayed: 6,
+				wins: 6,
+				losses: 0,
+				pointsFor: 604,
+				pointsAgainst: 454,
+				points: 100
+			}
 		]);
 	});
 
-	it('parses team info', () => {
+	it('parses team info without contacts', () => {
 		const body = JSON.stringify({
 			info: [
 				{
-					IDteam: '7046',
-					name: 'BK Domácí',
+					IDteam: '7001',
+					name: 'SLUNETA  Ústí nad Labem',
+					short_name2: 'UNL',
 					is_male: '1',
-					IDclub: '55',
+					groupby: '9',
+					IDclub: '1490',
 					clubname: 'BK',
-					phone_1: '123'
+					phone_1: '123',
+					phone_2: ''
 				}
 			],
+			contact: [{ IDuser: '1', first_name: 'X', birthdate: '1980-01-01' }],
 			match: []
 		});
 		expect(parseV2Team(body)).toMatchObject({
-			id: 7046,
+			id: 7001,
+			groupId: 9,
+			abbr: 'UNL',
 			isFemale: false,
-			club: { id: 55 },
+			club: { id: 1490 },
 			phones: ['123']
 		});
+	});
+
+	it('parses the roster from playerstatcount', () => {
+		const body = JSON.stringify({
+			info: [{ IDteam: '7001' }],
+			playerstatcount: [
+				{
+					IDplayer: '109430',
+					groupby: '109430',
+					first_name: 'Adam',
+					last_name: 'Hráč',
+					height: '190',
+					num_of_dress: '7',
+					PTS: '0'
+				}
+			],
+			ztotal: [{ sXGP: '6' }]
+		});
+		expect(parseV2TeamPlayers(body)).toMatchObject([
+			{ player: { id: 109430, groupId: 109430, height: 190 }, jersey: '7' }
+		]);
 	});
 });

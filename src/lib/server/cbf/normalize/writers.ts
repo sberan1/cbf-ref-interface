@@ -6,17 +6,21 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Tx } from '../../db/client';
 import * as s from '../../db/schema';
 import type {
+	IdName,
 	ParsedCompetition,
 	ParsedGame,
 	ParsedPerson,
 	ParsedPhase,
+	ParsedPlayerGameStats,
 	ParsedRosterEntry,
 	ParsedSeason,
 	ParsedStanding,
 	ParsedTeam,
+	ParsedTeamGameStats,
 	ParsedTeamRef,
 	ParsedV1Competition,
-	ParsedVenue
+	ParsedVenue,
+	V1OfficialRef
 } from '../parse/types';
 import { diffDelegation, type CurrentDelegation, type DelegationMode } from './delegation';
 import {
@@ -32,17 +36,21 @@ import {
 const now = sql`now()`;
 const BATCH = 500;
 
-/** Area names known from ivosu/cbf_ical; 4 and 9–11 are unknown (to be found by discovery). */
+/**
+ * Area names derived from the competitions each area returned in discovery (2026/27). Areas 9–11,
+ * 13 and 14 returned nothing in 2026/27; 13 and 14 are named after ivosu/cbf_ical (unverified).
+ */
 export const knownAreas: Record<number, string> = {
 	0: 'ČBF (celostátní)',
 	1: 'Praha',
 	2: 'Střední Čechy',
 	3: 'Jižní Čechy',
+	4: 'Západní Čechy',
 	5: 'Severní Čechy',
 	6: 'Východní Čechy',
 	7: 'Jižní Morava',
-	8: 'Moravskoslezský',
-	12: 'Olomoucký',
+	8: 'Severní Morava',
+	12: 'Střední Morava',
 	13: 'Karlovarský',
 	14: 'Plzeňský'
 };
@@ -53,6 +61,8 @@ export async function upsertSeasons(tx: Tx, seasons: ParsedSeason[]) {
 		startYear: r.startYear,
 		name: r.name,
 		shortName: r.shortName,
+		beginsOn: r.beginsOn,
+		endsOn: r.endsOn,
 		isCurrent: r.isCurrent,
 		extra: r.raw
 	}));
@@ -63,7 +73,14 @@ export async function upsertSeasons(tx: Tx, seasons: ParsedSeason[]) {
 		.onConflictDoUpdate({
 			target: s.season.id,
 			set: {
-				...preferIncoming(s.season, ['startYear', 'name', 'shortName', 'isCurrent']),
+				...preferIncoming(s.season, [
+					'startYear',
+					'name',
+					'shortName',
+					'beginsOn',
+					'endsOn',
+					'isCurrent'
+				]),
 				extra: excluded(s.season, 'extra'),
 				updatedAt: now
 			}
@@ -81,6 +98,18 @@ export async function upsertSeasonStub(
 		.onConflictDoUpdate({
 			target: s.season.id,
 			set: { ...fillMissing(s.season, ['name', 'startYear']), updatedAt: now }
+		});
+}
+
+async function upsertCategories(tx: Tx, categories: IdName[]) {
+	const rows = uniqueBy(categories, (c) => c.id);
+	if (!rows.length) return;
+	await tx
+		.insert(s.category)
+		.values(rows)
+		.onConflictDoUpdate({
+			target: s.category.id,
+			set: { ...preferIncoming(s.category, ['name']), updatedAt: now }
 		});
 }
 
@@ -109,21 +138,17 @@ export async function upsertCompetitionsV2(
 		});
 	}
 
-	const categories = uniqueBy(
-		comps.flatMap((c) => (c.category ? [c.category] : [])),
-		(c) => c.id
+	await upsertCategories(
+		tx,
+		comps.flatMap((c) => (c.category ? [c.category] : []))
 	);
-	if (categories.length) {
-		await tx
-			.insert(s.category)
-			.values(categories)
-			.onConflictDoUpdate({
-				target: s.category.id,
-				set: { ...preferIncoming(s.category, ['name', 'groupId', 'groupName']), updatedAt: now }
-			});
-	}
-
-	if (ctx.areaId !== undefined) await upsertAreas(tx, [ctx.areaId]);
+	await upsertAreas(
+		tx,
+		comps.flatMap((c) => {
+			const areaId = c.areaId ?? ctx.areaId;
+			return areaId === undefined || areaId === null ? [] : [areaId];
+		})
+	);
 
 	await tx
 		.insert(s.competition)
@@ -132,9 +157,11 @@ export async function upsertCompetitionsV2(
 				id: c.id,
 				seasonId: c.seasonId,
 				seasonYear: ctx.seasonYear ?? null,
-				areaId: ctx.areaId ?? null,
+				areaId: c.areaId ?? ctx.areaId ?? null,
 				isFemale: c.isFemale ?? (ctx.female === undefined ? null : ctx.female === 1),
 				categoryId: c.category?.id ?? null,
+				leagueId: c.league?.id ?? null,
+				leagueName: c.league?.name ?? null,
 				name: c.name,
 				extra: c.raw
 			}))
@@ -148,6 +175,8 @@ export async function upsertCompetitionsV2(
 					'areaId',
 					'isFemale',
 					'categoryId',
+					'leagueId',
+					'leagueName',
 					'name'
 				]),
 				extra: excluded(s.competition, 'extra'),
@@ -163,22 +192,45 @@ export async function upsertCompetitionsV1(
 ) {
 	const comps = uniqueBy(competitions, (c) => c.id);
 	if (!comps.length) return;
-	await tx
-		.insert(s.competition)
-		.values(
-			comps.map((c) => ({ id: c.id, name: c.name, seasonYear, flags: c.flags, extraV1: c.raw }))
-		)
-		.onConflictDoUpdate({
-			target: s.competition.id,
-			set: {
-				...fillMissing(s.competition, ['name', 'seasonYear']),
-				...overwrite(s.competition, ['flags', 'extraV1']),
-				updatedAt: now
-			}
-		});
+	await upsertCategories(
+		tx,
+		comps.flatMap((c) => (c.category ? [c.category] : []))
+	);
+	for (const batch of chunk(comps, BATCH)) {
+		await tx
+			.insert(s.competition)
+			.values(
+				batch.map((c) => ({
+					id: c.id,
+					name: c.name,
+					seasonYear,
+					categoryId: c.category?.id ?? null,
+					leagueId: c.league?.id ?? null,
+					leagueName: c.league?.name ?? null,
+					flags: c.flags,
+					extraV1: c.raw
+				}))
+			)
+			.onConflictDoUpdate({
+				target: s.competition.id,
+				set: {
+					...fillMissing(s.competition, [
+						'name',
+						'seasonYear',
+						'categoryId',
+						'leagueId',
+						'leagueName'
+					]),
+					...overwrite(s.competition, ['flags', 'extraV1']),
+					updatedAt: now
+				}
+			});
+	}
 
 	const phases = uniqueBy(
-		comps.flatMap((c) => c.phases.map((p) => ({ id: p.id, name: p.name, competitionId: c.id }))),
+		comps.flatMap((c) =>
+			c.phases.map((p) => ({ id: p.id, name: p.name, typeId: p.typeId, competitionId: c.id }))
+		),
 		(p) => p.id
 	);
 	for (const batch of chunk(phases, BATCH)) {
@@ -187,7 +239,7 @@ export async function upsertCompetitionsV1(
 			.values(batch)
 			.onConflictDoUpdate({
 				target: s.phase.id,
-				set: { ...fillMissing(s.phase, ['name', 'competitionId']), updatedAt: now }
+				set: { ...fillMissing(s.phase, ['name', 'typeId', 'competitionId']), updatedAt: now }
 			});
 	}
 }
@@ -224,14 +276,14 @@ export async function upsertTeamStubs(tx: Tx, refs: ParsedTeamRef[]) {
 	const rows = uniqueBy(
 		refs.filter((r): r is ParsedTeamRef & { id: number } => r.id !== null),
 		(r) => r.id
-	).map((r) => ({ id: r.id, name: r.name, abbr: r.abbr }));
+	).map((r) => ({ id: r.id, groupId: r.groupId, name: r.name, abbr: r.abbr }));
 	for (const batch of chunk(rows, BATCH)) {
 		await tx
 			.insert(s.team)
 			.values(batch)
 			.onConflictDoUpdate({
 				target: s.team.id,
-				set: { ...fillMissing(s.team, ['name', 'abbr']), updatedAt: now }
+				set: { ...fillMissing(s.team, ['groupId', 'name', 'abbr']), updatedAt: now }
 			});
 	}
 }
@@ -253,7 +305,7 @@ export async function upsertCompetitionTeams(
 }
 
 export function venueKey(v: ParsedVenue): string {
-	return [v.name, v.street, v.city]
+	return [v.name, v.city]
 		.map((part) => (part ?? '').trim().toLowerCase().replace(/\s+/g, ' '))
 		.join('|');
 }
@@ -266,7 +318,10 @@ async function upsertVenues(tx: Tx, venues: ParsedVenue[]): Promise<Map<string, 
 			.values({ naturalKey: venueKey(v), ...v })
 			.onConflictDoUpdate({
 				target: s.venue.naturalKey,
-				set: { ...preferIncoming(s.venue, ['zip', 'lat', 'lon']), updatedAt: now }
+				set: {
+					...preferIncoming(s.venue, ['hallId', 'street', 'zip', 'lat', 'lon']),
+					updatedAt: now
+				}
 			})
 			.returning({ id: s.venue.id });
 		ids.set(venueKey(v), row.id);
@@ -277,6 +332,7 @@ async function upsertVenues(tx: Tx, venues: ParsedVenue[]): Promise<Map<string, 
 export async function upsertOfficials(tx: Tx, persons: ParsedPerson[], seenAt: Date) {
 	const rows = uniqueBy(persons, (p) => p.id).map((p) => ({
 		id: p.id,
+		groupId: p.groupId,
 		firstName: p.firstName,
 		lastName: p.lastName,
 		lastSeenAt: seenAt
@@ -288,7 +344,7 @@ export async function upsertOfficials(tx: Tx, persons: ParsedPerson[], seenAt: D
 			.onConflictDoUpdate({
 				target: s.official.id,
 				set: {
-					...preferIncoming(s.official, ['firstName', 'lastName']),
+					...preferIncoming(s.official, ['groupId', 'firstName', 'lastName']),
 					lastSeenAt: excluded(s.official, 'lastSeenAt'),
 					updatedAt: now
 				},
@@ -358,6 +414,8 @@ export async function writeGames(tx: Tx, parsed: ParsedGame[], meta: GameWriteMe
 		urlLive: g.urlLive,
 		videoUrl: g.videoUrl,
 		isTv: g.isTv,
+		resultChecked: g.resultChecked,
+		attendance: g.attendance,
 		...(isV1
 			? { extraV1: g.raw }
 			: {
@@ -393,7 +451,9 @@ export async function writeGames(tx: Tx, parsed: ParsedGame[], meta: GameWriteMe
 		'venueId',
 		'urlLive',
 		'videoUrl',
-		'isTv'
+		'isTv',
+		'resultChecked',
+		'attendance'
 	] as const;
 
 	const written: number[] = [];
@@ -481,13 +541,17 @@ async function writeDelegations(
 		})
 		.from(s.gameOfficial)
 		.where(inArray(s.gameOfficial.gameId, ids));
+	// roles that already have history: a first assignment elsewhere is the initial observation
 	const withHistory = new Set(
 		(
 			await tx
-				.selectDistinct({ gameId: s.gameOfficialHistory.gameId })
+				.selectDistinct({
+					gameId: s.gameOfficialHistory.gameId,
+					role: s.gameOfficialHistory.role
+				})
 				.from(s.gameOfficialHistory)
 				.where(inArray(s.gameOfficialHistory.gameId, ids))
-		).map((r) => r.gameId)
+		).map((r) => `${r.gameId}:${r.role}`)
 	);
 	const currentByGame = new Map<number, CurrentDelegation[]>();
 	for (const row of currentRows) {
@@ -508,7 +572,6 @@ async function writeDelegations(
 
 	for (const game of observedGames) {
 		const current = currentByGame.get(game.id) ?? [];
-		const isInitial = current.length === 0 && !withHistory.has(game.id);
 		for (const op of diffDelegation(current, game.officials, mode, meta.observedAt)) {
 			if (op.type === 'remove') {
 				removals.push({ gameId: game.id, role: op.role });
@@ -530,6 +593,7 @@ async function writeDelegations(
 				officialId: op.official.id,
 				firstName: op.official.firstName,
 				lastName: op.official.lastName,
+				ratings: op.official.ratings,
 				...common
 			});
 			if (op.type === 'assign' || op.type === 'replace') {
@@ -539,7 +603,7 @@ async function writeDelegations(
 					changeType: op.type === 'assign' ? 'assigned' : 'replaced',
 					officialId: op.official.id,
 					previousOfficialId: op.type === 'replace' ? op.previousOfficialId : null,
-					isInitial: op.type === 'assign' && isInitial,
+					isInitial: op.type === 'assign' && !withHistory.has(`${game.id}:${op.role}`),
 					...common
 				});
 			}
@@ -558,6 +622,7 @@ async function writeDelegations(
 						'officialId',
 						'firstName',
 						'lastName',
+						'ratings',
 						'source',
 						'observedAt',
 						'rawPayloadId'
@@ -599,14 +664,19 @@ export async function writeStandings(
 	if (!rows.length) return;
 	await upsertTeamStubs(
 		tx,
-		rows.map((r) => ({ id: r.teamId, name: r.teamName, abbr: r.teamAbbr }))
+		standings.map((r) => ({
+			id: r.teamId,
+			groupId: r.teamGroupId,
+			name: r.teamName,
+			abbr: null
+		}))
 	);
 	await upsertCompetitionTeams(
 		tx,
 		rows.flatMap((r) =>
 			r.competitionId === null
 				? []
-				: [{ competitionId: r.competitionId, teamId: r.teamId, name: r.teamName, abbr: r.teamAbbr }]
+				: [{ competitionId: r.competitionId, teamId: r.teamId, name: r.teamName, abbr: null }]
 		)
 	);
 	await tx
@@ -650,6 +720,7 @@ export async function writeTeam(tx: Tx, team: ParsedTeam, competitionId: number)
 		.insert(s.team)
 		.values({
 			id: team.id,
+			groupId: team.groupId,
 			clubId: team.club?.id ?? null,
 			categoryId: team.categoryId,
 			name: team.name,
@@ -668,6 +739,7 @@ export async function writeTeam(tx: Tx, team: ParsedTeam, competitionId: number)
 			target: s.team.id,
 			set: {
 				...preferIncoming(s.team, [
+					'groupId',
 					'clubId',
 					'categoryId',
 					'name',
@@ -697,7 +769,7 @@ export async function writeRoster(
 ) {
 	const unique = uniqueBy(entries, (e) => e.player.id);
 	if (!unique.length) return;
-	await upsertTeamStubs(tx, [{ id: teamId, name: null, abbr: null }]);
+	await upsertTeamStubs(tx, [{ id: teamId, groupId: null, name: null, abbr: null }]);
 	for (const batch of chunk(unique, BATCH)) {
 		await tx
 			.insert(s.player)
@@ -705,7 +777,7 @@ export async function writeRoster(
 			.onConflictDoUpdate({
 				target: s.player.id,
 				set: {
-					...preferIncoming(s.player, ['firstName', 'lastName', 'birthYear']),
+					...preferIncoming(s.player, ['groupId', 'firstName', 'lastName', 'height']),
 					updatedAt: now
 				}
 			});
@@ -724,5 +796,72 @@ export async function writeRoster(
 				target: [s.teamPlayer.competitionId, s.teamPlayer.teamId, s.teamPlayer.playerId],
 				set: { ...overwrite(s.teamPlayer, ['jersey', 'stats']), updatedAt: now }
 			});
+	}
+}
+
+/**
+ * v1 sched.php names officials by canonical person ID. Where v2 already knows who holds the same
+ * role in the same game, the canonical ID is stored as `official.group_id` (needed mainly for
+ * commissioners, whose v2 records carry no group ID). Never overwrites an existing group ID.
+ */
+export async function linkOfficialGroups(tx: Tx, refs: V1OfficialRef[]) {
+	const unique = uniqueBy(refs, (r) => `${r.gameId}:${r.role}`);
+	for (const batch of chunk(unique, BATCH)) {
+		const values = sql.join(
+			batch.map((r) => sql`(${r.gameId}::int, ${r.role}::text, ${r.groupId}::int)`),
+			sql`, `
+		);
+		await tx.execute(sql`
+			update ${s.official} as o
+			set group_id = v.group_id, updated_at = now()
+			from (values ${values}) as v(game_id, role, group_id)
+			join ${s.gameOfficial} as go on go.game_id = v.game_id and go.role = v.role
+			where o.id = go.official_id and o.group_id is null
+		`);
+	}
+}
+
+/** Replaces the box score of one game (players and teams) from its latest game.php payload. */
+export async function writeGameStats(
+	tx: Tx,
+	gameId: number,
+	players: ParsedPlayerGameStats[],
+	teams: ParsedTeamGameStats[]
+) {
+	const playerRows = uniqueBy(players, (p) => p.player.id);
+	if (playerRows.length) {
+		await tx
+			.insert(s.player)
+			.values(playerRows.map((p) => ({ ...p.player })))
+			.onConflictDoUpdate({
+				target: s.player.id,
+				set: { ...preferIncoming(s.player, ['groupId', 'firstName', 'lastName']), updatedAt: now }
+			});
+	}
+	await tx.delete(s.playerGameStats).where(eq(s.playerGameStats.gameId, gameId));
+	for (const batch of chunk(playerRows, BATCH)) {
+		await tx.insert(s.playerGameStats).values(
+			batch.map((p) => ({
+				gameId,
+				playerId: p.player.id,
+				teamId: p.teamId,
+				jersey: p.jersey,
+				stats: p.raw
+			}))
+		);
+	}
+
+	const teamRows = uniqueBy(teams, (t) => t.teamId);
+	await upsertTeamStubs(
+		tx,
+		teamRows.map((t) => ({ id: t.teamId, groupId: t.groupId, name: null, abbr: null }))
+	);
+	await tx.delete(s.gameTeamStats).where(eq(s.gameTeamStats.gameId, gameId));
+	if (teamRows.length) {
+		await tx
+			.insert(s.gameTeamStats)
+			.values(
+				teamRows.map((t) => ({ gameId, teamId: t.teamId, isGuest: t.isGuest, stats: t.raw }))
+			);
 	}
 }

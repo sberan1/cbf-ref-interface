@@ -22,7 +22,9 @@ import {
 	writeGames,
 	writeRoster,
 	writeStandings,
-	writeTeam
+	writeTeam,
+	writeGameStats,
+	linkOfficialGroups
 } from './writers';
 
 export interface NormalizeContext {
@@ -153,7 +155,7 @@ export const normalizers: Partial<Record<EndpointKey, AnyNormalizer>> = {
 	'v2.game': define({
 		version: 1,
 		parse: (body) => parseV2GameDetail(body),
-		write: async (ctx, { game }) => {
+		write: async (ctx, { game, players, teams }) => {
 			if (!game) return;
 			await writeGames(ctx.tx, [game], {
 				source: 'v2.game',
@@ -162,7 +164,7 @@ export const normalizers: Partial<Record<EndpointKey, AnyNormalizer>> = {
 				competitionId: ctx.task.ctx.competitionId,
 				phaseId: ctx.task.ctx.phaseId
 			});
-			// TODO(discovery): map the statistics part of game.php into player_game_stats.
+			await writeGameStats(ctx.tx, game.id, players, teams);
 			return isHistorical(ctx) ? {} : { nextDueAt: gameDetailNextDueAt(game, ctx.now) };
 		}
 	}),
@@ -199,14 +201,17 @@ export const normalizers: Partial<Record<EndpointKey, AnyNormalizer>> = {
 	'v1.sched': define({
 		version: 1,
 		parse: (body, task) => parseV1Sched(body, Number(task.params.p)),
-		write: async ({ tx, task, rawPayloadId, fetchedAt }, games) =>
-			writeGames(tx, games, {
+		write: async ({ tx, task, rawPayloadId, fetchedAt }, { games, officials }) => {
+			// fill-only: game fields v2 does not have yet; people are linked by canonical ID
+			await writeGames(tx, games, {
 				source: 'v1.sched',
 				observedAt: fetchedAt,
 				rawPayloadId,
 				phaseId: numParam(task, 'p'),
 				competitionId: task.ctx.competitionId
-			})
+			});
+			await linkOfficialGroups(tx, officials);
+		}
 	})
 	// v1.table: raw only (v2.table is the primary source of standings)
 };

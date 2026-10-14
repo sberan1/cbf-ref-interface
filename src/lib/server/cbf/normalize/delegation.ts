@@ -1,5 +1,5 @@
 import type { OfficialRole } from '../../db/schema';
-import type { ObservedOfficial, ParsedPerson } from '../parse/types';
+import type { ObservedOfficial, ParsedOfficial } from '../parse/types';
 
 export interface CurrentDelegation {
 	role: OfficialRole;
@@ -10,14 +10,15 @@ export interface CurrentDelegation {
 /**
  * - `authoritative`: the snapshot is the truth for every role it carries (v2 game / games list);
  *   an explicit vacancy removes the official.
- * - `fill`: the source only adds officials to empty roles and never overrides (v1 sched).
+ * - `fill`: the source only adds officials to empty roles and never overrides. Kept for
+ *   supplementary sources; v1 sched.php does not use it (its people are in another ID space).
  */
 export type DelegationMode = 'authoritative' | 'fill';
 
 export type DelegationOp =
-	| { type: 'assign'; role: OfficialRole; official: ParsedPerson }
-	| { type: 'replace'; role: OfficialRole; official: ParsedPerson; previousOfficialId: number }
-	| { type: 'confirm'; role: OfficialRole; official: ParsedPerson }
+	| { type: 'assign'; role: OfficialRole; official: ParsedOfficial }
+	| { type: 'replace'; role: OfficialRole; official: ParsedOfficial; previousOfficialId: number }
+	| { type: 'confirm'; role: OfficialRole; official: ParsedOfficial }
 	| { type: 'remove'; role: OfficialRole; previousOfficialId: number };
 
 /**

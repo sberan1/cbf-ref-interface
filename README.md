@@ -65,9 +65,20 @@ Fetch fronta má jediného aktivního consumera, takže limit 1 request / 2–3 
 spuštěných workerech. Bootstrap jde přerušit a znovu spustit: co je stažené a čerstvé, se znovu
 nestahuje. Discovery ale používá vlastní limiter, takže ji nespouštěj zároveň s workerem.
 
-Mapování polí exportu vychází z dokumentace ČBF a z kódu veřejných klientů. Živé API zatím ověřené
-není, proto začni příkazem `discover` a podle výsledků uprav `parse/v2.ts`. Místa označená
-PROVISIONAL jsou odhady.
+Mapování polí je ověřené na živých vzorcích z discovery 2026-10-14 (sezóny 2026/27 a 2012/13,
+viz `docs/agent-context/history/20261014-scaffold-cbf-ingestu.md`). Výchozí host je `cbf.cz`
+(`CBF_BASE_URL`).
+
+Hlavní zvláštnosti exportu:
+
+- v1 identifikuje osoby a týmy „group“ ID (v2 `uNgroup` / `groupby`), v DB jsou ve sloupcích
+  `group_id`.
+- `score_quarter` obsahuje průběžný stav po čtvrtinách, ne body za čtvrtinu.
+- Rozhodčí jsou jen v detailu zápasu. ID 0 se jménem „Delegováno“ znamená, že delegace ještě není
+  zveřejněná.
+
+Za HTTP proxy (např. cloudový sandbox) potřebuje Node `fetch` proměnnou `NODE_USE_ENV_PROXY=1`
+(Node ≥ 22.21).
 
 ## Testy
 

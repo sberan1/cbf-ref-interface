@@ -1,80 +1,107 @@
-// Synthetic fixtures following the element names read by ivosu/cbf_ical.
+// Fixtures follow the structure of live v1 samples (discovery 2026-10-14); people are made up.
 import { describe, expect, it } from 'vitest';
 import { decodeBody } from '../http';
 import { parseV1Divs, parseV1Sched, parseV1Table } from './v1';
 
 const sched = `<?xml version="1.0" encoding="utf-8"?>
-<schedule>
-	<game>
-		<id>273093</id><gdate>2026-10-03</gdate><gtime>18:00:00</gtime>
-		<place>Sportovní hala</place><city>Nymburk</city>
-		<ref><id>1001</id><firstname>Jan</firstname><lastname>Novák</lastname></ref>
-		<ref><id>1002</id><firstname>Petr</firstname><lastname>Svoboda</lastname></ref>
-		<sup><id>2001</id><firstname>Eva</firstname><lastname>Dvořáková</lastname></sup>
-		<team guest="0"><id>7046</id><name>BK Domácí</name><abbr>DOM</abbr></team>
-		<team guest="1"><id>7047</id><name>BK Hosté</name><abbr>HOS</abbr></team>
-		<result>
-			<pts><a>2</a><b>1</b></pts>
-			<score><a>81</a><b>77</b></score>
-			<partials><partial ord="1"><a>20</a><b>18</b></partial><partial ord="2"><a>15</a><b>22</b></partial></partials>
-			<urllive>https://example.invalid/live</urllive>
-		</result>
-	</game>
-	<game>
-		<id>273094</id><gdate>0000-00-00</gdate><gtime>00:00:00</gtime>
-		<team guest="0"><id>7047</id><name>BK Hosté</name></team>
-		<team guest="1"><id>7046</id><name>BK Domácí</name></team>
-		<result><score><a>0</a><b>0</b></score></result>
-	</game>
-</schedule>`;
+<!DOCTYPE games PUBLIC "-//CBF//divisions list//EN" "http://www.cbf.cz/xml/spec/sched.dtd">
+<games>
+<game>
+  <id>544546</id><xround></xround><round>1</round><div>5402</div><num>1</num><gdate>2026-09-20</gdate><gtime>18:00:00</gtime>
+  <place>Sportcentrum SLUNETA</place> <city>Ústí nad Labem</city>
+  <ref ord="1"><id>2001</id><lastname>Novák</lastname><firstname>Jan</firstname></ref>
+  <ref ord="2"><id>50011</id><lastname>Svoboda</lastname><firstname>Petr</firstname></ref>
+  <ref ord="3"><id>2003</id><lastname>Dvořák</lastname><firstname>Karel</firstname></ref>
+  <sup><id>3001</id><lastname>Dvořáková</lastname><firstname>Eva</firstname></sup>
+  <team guest="0"><id>9</id><name>SLUNETA  Ústí nad Labem</name><abbr>SLUNETA Ústí nad Labem</abbr></team>
+  <team guest="1"><id>421</id><name>Sršni Photomate Písek</name><abbr>Sršni Photomate Písek</abbr></team>
+  <result>
+    <pts><a>1</a><b>2</b></pts><score><a>78</a><b>80</b></score>
+    <partials><partial ord="1"><a>13</a><b>8</b></partial><partial ord="2"><a>32</a><b>26</b></partial><partial ord="3"><a>58</a><b>48</b></partial></partials>
+    <urllive>https://example.invalid/live</urllive>
+  </result>
+</game>
+<game>
+  <id>544582</id><xround></xround><round>7</round><div>5402</div><num>37</num><gdate>2026-10-17</gdate><gtime>19:00:00</gtime>
+  <place>Víceúčelová hala Opava</place> <city>Opava</city>
+  <sup><id>3002</id><lastname>Kopecký</lastname><firstname>Josef</firstname></sup>
+  <team guest="0"><id>7</id><name>BK Opava</name></team>
+  <team guest="1"><id>421</id><name>Sršni Photomate Písek</name></team>
+  <result>
+    <pts><a>0</a><b>0</b></pts><score><a>0</a><b>0</b></score>
+    <partials><partial ord="1"><a>0</a><b>0</b></partial></partials>
+  </result>
+</game>
+</games>`;
 
 describe('v1 parsers', () => {
-	it('parses a schedule with delegations and partials', () => {
-		const [played, unscheduled] = parseV1Sched(sched, 4451);
+	it('parses games without v2 team IDs and converts cumulative partials', () => {
+		const { games } = parseV1Sched(sched, 10310);
+		const [played, upcoming] = games;
 		expect(played).toMatchObject({
-			id: 273093,
-			phaseId: 4451,
-			homeScore: 81,
-			awayScore: 77,
-			homePoints: 2,
-			home: { id: 7046, abbr: 'DOM' },
-			away: { id: 7047 },
-			urlLive: 'https://example.invalid/live'
-		});
-		expect(played.quarters).toEqual([
-			{ period: 1, home: 20, away: 18 },
-			{ period: 2, home: 15, away: 22 }
-		]);
-		expect(played.officials.map((o) => [o.role, o.official?.id])).toEqual([
-			['referee1', 1001],
-			['referee2', 1002],
-			['commissioner', 2001]
-		]);
-		expect(unscheduled).toMatchObject({
-			scheduledDate: null,
-			startsAt: null,
-			homeScore: null,
+			id: 544546,
+			phaseId: 10310,
+			competitionId: 5402,
+			homeScore: 78,
+			awayScore: 80,
+			homePoints: 1,
+			home: { id: null, groupId: 9, name: 'SLUNETA  Ústí nad Labem' },
+			away: { id: null, groupId: 421 },
 			officials: []
 		});
+		expect(played.quarters.map((q) => [q.home, q.away])).toEqual([
+			[13, 8],
+			[19, 18],
+			[26, 22],
+			[20, 32]
+		]);
+		expect(upcoming).toMatchObject({ homeScore: null, homePoints: null, quarters: [] });
 	});
 
-	it('parses competitions with phases and flags', () => {
-		const xml = `<divs><div refeval="1"><id>2097</id><name>NBL</name><finished>0</finished>
-			<phases><phase><id>4451</id><name>Základní část</name></phase></phases></div></divs>`;
-		expect(parseV1Divs(xml)).toMatchObject([
-			{
-				id: 2097,
-				name: 'NBL',
-				flags: { finished: false, refeval: true },
-				phases: [{ id: 4451, name: 'Základní část' }]
-			}
+	it('returns delegations by canonical person ID, using the ord attribute', () => {
+		const { officials } = parseV1Sched(sched, 10310);
+		expect(officials.map((o) => [o.gameId, o.role, o.groupId])).toEqual([
+			[544546, 'referee1', 2001],
+			[544546, 'referee2', 50011],
+			[544546, 'referee3', 2003],
+			[544546, 'commissioner', 3001],
+			[544582, 'commissioner', 3002]
 		]);
+	});
+
+	it('parses competitions with category, league, flags and phases', () => {
+		const xml = `<divs><div>
+			<id>5373</id><name>Středomoravská liga mužů</name>
+			<season><id>2026</id><name>2026/27</name></season>
+			<cat><id>1634</id><name>muži</name></cat>
+			<league><id>2832</id><name>Oblasti</name></league>
+			<flags><flag name="public" /><flag name="refeval" /></flags>
+			<phases>
+				<phase><id>10205</id><name>Základní část</name><type>1</type><offset>0</offset></phase>
+				<phase><id>10288</id><name>Play Off</name><type>2</type></phase>
+			</phases></div>
+			<div><id>5370</id><name>Bez fází</name><flags><flag name="results" /></flags><phases></phases></div></divs>`;
+		const [withPhases, empty] = parseV1Divs(xml);
+		expect(withPhases).toMatchObject({
+			id: 5373,
+			category: { id: 1634, name: 'muži' },
+			league: { id: 2832, name: 'Oblasti' },
+			phases: [
+				{ id: 10205, typeId: 1 },
+				{ id: 10288, typeId: 2 }
+			]
+		});
+		expect(withPhases.flags).toMatchObject({ public: true, refeval: true, finished: false });
+		expect(empty.phases).toEqual([]);
+		expect(empty.flags.results).toBe(true);
 	});
 
 	it('keeps NBL win percentage in standings points', () => {
-		const xml = `<table><team><pos>1</pos><id>7046</id><name>BK</name><gp>10</gp><gw>9</gw><gl>1</gl>
-			<sp>900</sp><sm>700</sm><pt>0.9</pt></team></table>`;
-		expect(parseV1Table(xml)).toMatchObject([{ teamId: 7046, position: 1, points: 0.9 }]);
+		const xml = `<table><team><pos>1</pos><id>14787</id><name>BK</name><gp>6</gp><gw>6</gw><gl>0</gl>
+			<sp>604</sp><sm>454</sm><pt>100.0</pt><group>13466</group></team></table>`;
+		expect(parseV1Table(xml)).toMatchObject([
+			{ teamId: 14787, teamGroupId: 13466, position: 1, points: 100 }
+		]);
 	});
 
 	it('decodes windows-1250 XML by its declaration', () => {

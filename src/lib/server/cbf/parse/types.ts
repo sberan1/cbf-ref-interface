@@ -6,8 +6,15 @@ export interface ParsedSeason {
 	startYear: number | null;
 	name: string | null;
 	shortName: string | null;
+	beginsOn: string | null;
+	endsOn: string | null;
 	isCurrent: boolean | null;
 	raw: Rec;
+}
+
+export interface IdName {
+	id: number;
+	name: string | null;
 }
 
 export interface ParsedCompetition {
@@ -15,13 +22,10 @@ export interface ParsedCompetition {
 	name: string | null;
 	seasonId: number | null;
 	seasonName: string | null;
+	areaId: number | null;
 	isFemale: boolean | null;
-	category: {
-		id: number;
-		name: string | null;
-		groupId: number | null;
-		groupName: string | null;
-	} | null;
+	category: IdName | null;
+	league: IdName | null;
 	raw: Rec;
 }
 
@@ -35,24 +39,35 @@ export interface ParsedPhase {
 }
 
 export interface ParsedPerson {
+	/** v2 user ID */
 	id: number;
+	/** canonical person ID (v2 `groupby` / `uNgroup`, = v1 person ID) */
+	groupId: number | null;
 	firstName: string | null;
 	lastName: string | null;
+}
+
+export interface ParsedOfficial extends ParsedPerson {
+	/** Referee evaluation { home, guest, commissioner } as sent by ČBF, null when absent. */
+	ratings: Rec | null;
 }
 
 /** `official: null` means the source explicitly says the role is vacant. */
 export interface ObservedOfficial {
 	role: OfficialRole;
-	official: ParsedPerson | null;
+	official: ParsedOfficial | null;
 }
 
 export interface ParsedTeamRef {
+	/** v2 team ID (per season); null for v1, which only knows the group ID */
 	id: number | null;
+	groupId: number | null;
 	name: string | null;
 	abbr: string | null;
 }
 
 export interface ParsedVenue {
+	hallId: number | null;
 	name: string | null;
 	street: string | null;
 	city: string | null;
@@ -82,13 +97,46 @@ export interface ParsedGame {
 	urlLive: string | null;
 	videoUrl: string | null;
 	isTv: boolean | null;
-	/** Only roles the payload actually carries; missing roles are "unknown", not "vacant". */
+	resultChecked: boolean | null;
+	attendance: number | null;
+	/** Only roles the payload actually carries; missing or hidden roles are "unknown", not "vacant". */
 	officials: ObservedOfficial[];
 	raw: Rec;
 }
 
+/** v1 sched.php person reference: v1 IDs are canonical person IDs (= v2 `uNgroup`). */
+export interface V1OfficialRef {
+	gameId: number;
+	role: OfficialRole;
+	groupId: number;
+	firstName: string | null;
+	lastName: string | null;
+}
+
+export interface ParsedPlayerGameStats {
+	player: ParsedPerson;
+	teamId: number | null;
+	jersey: string | null;
+	isGuest: boolean | null;
+	raw: Rec;
+}
+
+export interface ParsedTeamGameStats {
+	teamId: number;
+	groupId: number | null;
+	isGuest: boolean | null;
+	raw: Rec;
+}
+
+export interface ParsedGameDetail {
+	game: ParsedGame | null;
+	players: ParsedPlayerGameStats[];
+	teams: ParsedTeamGameStats[];
+}
+
 export interface ParsedStanding {
 	teamId: number;
+	teamGroupId: number | null;
 	competitionId: number | null;
 	teamName: string | null;
 	teamAbbr: string | null;
@@ -104,6 +152,7 @@ export interface ParsedStanding {
 
 export interface ParsedTeam {
 	id: number;
+	groupId: number | null;
 	name: string | null;
 	shortName: string | null;
 	abbr: string | null;
@@ -115,12 +164,12 @@ export interface ParsedTeam {
 	zip: string | null;
 	phones: string[];
 	categoryId: number | null;
-	club: { id: number; name: string | null } | null;
+	club: IdName | null;
 	raw: Rec;
 }
 
 export interface ParsedRosterEntry {
-	player: ParsedPerson & { birthYear: number | null };
+	player: ParsedPerson & { height: number | null };
 	jersey: string | null;
 	raw: Rec;
 }
@@ -128,7 +177,9 @@ export interface ParsedRosterEntry {
 export interface ParsedV1Competition {
 	id: number;
 	name: string | null;
+	category: IdName | null;
+	league: IdName | null;
 	flags: Record<string, boolean | null>;
-	phases: { id: number; name: string | null }[];
+	phases: { id: number; name: string | null; typeId: number | null }[];
 	raw: Rec;
 }

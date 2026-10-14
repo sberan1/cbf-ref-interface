@@ -45,7 +45,10 @@ export function gameDetailNextDueAt(game: ParsedGame, now: Date): Date | null {
 	const t = now.getTime();
 	if (!game.startsAt) return new Date(t + 3 * DAY);
 	const start = game.startsAt.getTime();
-	const final = game.homeScore !== null && game.awayScore !== null;
+	// a result is final once ČBF confirms it (`checked`); unconfirmed results count as final after
+	// two weeks so that lower leagues that never confirm do not get refetched forever
+	const hasResult = game.homeScore !== null && game.awayScore !== null;
+	const final = hasResult && (game.resultChecked !== false || start < t - 14 * DAY);
 	if (start < t - 3 * DAY) return final ? null : new Date(t + 3 * DAY);
 	if (start <= t + 14 * DAY) return new Date(t + 6 * HOUR);
 	return new Date(t + 7 * DAY);

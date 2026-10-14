@@ -93,13 +93,19 @@ describe('scheduling', () => {
 
 	it('refreshes game details around the game and stops once final', () => {
 		const now = new Date('2026-10-14T12:00:00Z');
-		const game = (startsAt: string, score: boolean) =>
+		const game = (startsAt: string, score: boolean, resultChecked: boolean | null = true) =>
 			({
 				startsAt: new Date(startsAt),
 				homeScore: score ? 80 : null,
-				awayScore: score ? 70 : null
+				awayScore: score ? 70 : null,
+				resultChecked
 			}) as ParsedGame;
 		expect(gameDetailNextDueAt(game('2026-10-01T16:00:00Z', true), now)).toBeNull();
+		// unconfirmed result: keep checking for two weeks, then give up
+		expect(gameDetailNextDueAt(game('2026-10-08T16:00:00Z', true, false), now)?.getTime()).toBe(
+			now.getTime() + 3 * 24 * 3600_000
+		);
+		expect(gameDetailNextDueAt(game('2026-09-20T16:00:00Z', true, false), now)).toBeNull();
 		expect(gameDetailNextDueAt(game('2026-10-20T16:00:00Z', false), now)?.getTime()).toBe(
 			now.getTime() + 6 * 3600_000
 		);
