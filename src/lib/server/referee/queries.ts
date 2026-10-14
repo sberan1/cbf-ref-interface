@@ -31,6 +31,9 @@ import {
 	type Granularity,
 	type RoleKind
 } from '../../referee/timeline';
+import { foldText } from './text';
+
+export { foldText };
 
 export interface OfficialCandidate {
 	id: number;
@@ -45,11 +48,6 @@ export interface OfficialCandidate {
 
 const DIACRITICS_FROM = 'áäčďéěëíĺľňóôöŕřšťúůüýž';
 const DIACRITICS_TO = 'aacdeeeillnooorrstuuuyz';
-
-/** Lowercase, without Czech/Slovak diacritics (mirrors the SQL `translate` below). */
-export function foldText(value: string): string {
-	return value.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-}
 
 function foldedName(): SQL {
 	return sql`translate(lower(coalesce(${official.firstName}, '') || ' ' || coalesce(${official.lastName}, '')), ${DIACRITICS_FROM}, ${DIACRITICS_TO})`;
@@ -223,6 +221,8 @@ export interface GameRow {
 	scheduledDate: string | null;
 	scheduledTime: string | null;
 	role: RoleKind;
+	/** referee1 / referee2 / referee3 / commissioner */
+	roleCode: string;
 	roleName: string;
 	competitionName: string | null;
 	seasonYear: number | null;
@@ -287,6 +287,7 @@ export async function personGames(
 	return rows.map((r) => ({
 		...r,
 		role: roleKind(r.role),
+		roleCode: r.role,
 		roleName: roleNames[r.role] ?? r.role
 	}));
 }
