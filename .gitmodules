@@ -1,0 +1,3 @@
+[submodule "docs/agent-context"]
+	path = docs/agent-context
+	url = git@github.com:sberan1/cbf-ref-interface-agent-context.git
