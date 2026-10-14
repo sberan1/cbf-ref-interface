@@ -1,56 +1,77 @@
-# sv
+# cbf-ref-interface
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Rozhraní nad daty ČBF pro rozhodčí (delegace, zápasy, komisaři). Aplikace čte jen z vlastní
+databáze. Data z XML/JSON exportu ČBF stahuje sync worker (ADR 0001).
 
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
+Stack: SvelteKit + Drizzle + PostgreSQL. Fronta syncu běží na RabbitMQ.
+Rozhodnutí a kontext jsou ve znalostní bázi `docs/agent-context` (git submodul,
+[sberan1/cbf-ref-interface-agent-context](https://github.com/sberan1/cbf-ref-interface-agent-context)).
+Před změnou architektury si přečti její README a platné ADR.
 
 ```sh
-# create a new project
-npx sv create my-app
+git submodule update --init
 ```
 
-To recreate this project with the same configuration:
+## Lokální vývoj
 
 ```sh
-# recreate this project
-npx sv@1.1.1 create --template minimal --types ts --add prettier eslint playwright="demo:no" tailwindcss="plugins:forms,typography" drizzle="database:postgresql+postgresql:postgres.js+docker:yes" ai-tools="ide:claude-code+delivery:plugin" --install npm cbf-ref-interface
-```
-
-## Adding features
-
-Add features to your project with `sv add`:
-
-```sh
-npx sv add
-```
-
-For example, to add Tailwind CSS:
-
-```sh
-npx sv add tailwindcss
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
+cp .env.example .env
+npm install
+npm run db:start          # PostgreSQL + RabbitMQ (docker compose), management UI na :15672
+npm run db:migrate        # aplikuje migrace z drizzle/
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
 ```
 
-## Building
+Po změně schématu (`src/lib/server/db/schema/`) vygeneruj migraci příkazem `npm run db:generate`
+a commitni ji.
 
-To create a production version of your app:
+## Sync dat z ČBF
+
+Struktura (`src/lib/server/cbf/`):
+
+| Modul                     | Účel                                                                |
+| ------------------------- | ------------------------------------------------------------------- |
+| `endpoints.ts`            | registr v1/v2 endpointů, kanonický `request_key`                    |
+| `http.ts`, `rate-limiter` | HTTP klient: 1 request / 2–3 s, pauza při 403/429/503               |
+| `parse/`                  | tolerantní parsery v1 XML a v2 JSON → typované objekty              |
+| `pipeline/fetch.ts`       | fetch krok: kontrola čerstvosti → request → `ingest.raw_payload`    |
+| `pipeline/normalize.ts`   | normalize krok: poslední payload → `cbf.*` tabulky, expanze potomků |
+| `normalize/`              | mapování na tabulky, delegace a jejich historie                     |
+| `queue/broker.ts`         | RabbitMQ topologie (fetch / normalize, retry 30s/5m/30m, dead)      |
+| `scheduler.ts`            | kořenové úlohy: bootstrap, daily, window                            |
+| `discovery/`              | vzorkování všech endpointů do souborů (ověření skutečného schématu) |
+
+Datové vrstvy (ADR 0004): `ingest.raw_payload` drží každou odpověď beze změny (deduplikace hashem),
+`ingest.fetch_state` stav a plán obnovy každého zdroje, `ingest.fetch_log` audit všech requestů.
+Ve schématu `cbf.*` je normalizovaná vrstva: sezóny, soutěže, fáze, týmy, zápasy, rozhodčí,
+delegace a jejich historie, tabulky a hráči.
+
+### Příkazy
 
 ```sh
-npm run build
+npm run cbf -- help
+npm run cbf -- discover                 # nejdřív: vzorky endpointů do discovery/out/ (bez DB a fronty)
+npm run cbf:worker                      # consumer fronty (fetch + normalize), Ctrl+C = čisté ukončení
+npm run cbf -- bootstrap                # posledních 20 sezón + aktuální, nejnovější první
+npm run cbf -- daily                    # obnova aktuální sezóny (cron 1× denně)
+npm run cbf -- window                   # detaily zápasů v okně −3/+14 dní (cron po pár hodinách)
+npm run cbf -- fetch v2.game game=273093 --force
+npm run cbf -- renormalize --endpoint v2.games --force   # přepočet z raw dat, bez HTTP
+npm run cbf -- stats                    # hloubka front, počty řádků, requesty za poslední hodinu
+npm run cbf -- requeue-dead --queue fetch
 ```
 
-You can preview the production build with `npm run preview`.
+Fetch fronta má jediného aktivního consumera, takže limit 1 request / 2–3 s platí i při víc
+spuštěných workerech. Bootstrap jde přerušit a znovu spustit: co je stažené a čerstvé, se znovu
+nestahuje. Discovery ale používá vlastní limiter, takže ji nespouštěj zároveň s workerem.
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+Mapování polí exportu vychází z dokumentace ČBF a z kódu veřejných klientů. Živé API zatím ověřené
+není, proto začni příkazem `discover` a podle výsledků uprav `parse/v2.ts`. Místa označená
+PROVISIONAL jsou odhady.
+
+## Testy
+
+```sh
+npm run test:unit -- --run   # vitest (parsery, časová zóna, delegace, plánování)
+npm run check && npm run lint
+```

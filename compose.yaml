@@ -10,5 +10,15 @@ services:
       POSTGRES_DB: local
     volumes:
       - pgdata:/var/lib/postgresql
+  rabbitmq:
+    image: rabbitmq:4-management
+    restart: always
+    ports:
+      - 5672:5672
+      # management UI: http://localhost:15672 (guest / guest)
+      - 15672:15672
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
 volumes:
   pgdata:
+  rabbitmqdata:
