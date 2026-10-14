@@ -29,6 +29,16 @@ const envSchema = z.object({
 	CBF_CURRENT_SEASON_YEAR: z.preprocess(emptyAsUnset, z.coerce.number().int().min(1990).optional()),
 	/** Max age of a game detail before the window job refetches it. */
 	CBF_WINDOW_MAX_AGE_HOURS: intFromEnv(12),
+	/** `scheduler`: local Europe/Prague time of the daily refresh (HH:MM). */
+	CBF_DAILY_AT: z.preprocess(
+		emptyAsUnset,
+		z
+			.string()
+			.regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+			.default('04:30')
+	),
+	/** `scheduler`: how often to enqueue the −3/+14 day game window. */
+	CBF_WINDOW_EVERY_HOURS: intFromEnv(6),
 	CBF_NORMALIZE_PREFETCH: intFromEnv(4)
 });
 
@@ -52,6 +62,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 		bootstrapSeasons: e.CBF_BOOTSTRAP_SEASONS,
 		currentSeasonYear: e.CBF_CURRENT_SEASON_YEAR,
 		windowMaxAgeSec: e.CBF_WINDOW_MAX_AGE_HOURS * 3600,
+		dailyAt: e.CBF_DAILY_AT,
+		windowEveryMs: Math.max(1, e.CBF_WINDOW_EVERY_HOURS) * 3600_000,
 		normalizePrefetch: Math.max(1, e.CBF_NORMALIZE_PREFETCH)
 	};
 }

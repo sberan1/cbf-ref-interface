@@ -1,0 +1,118 @@
+# Production stack for the VPS (ADR 0007). It lives in the deploy directory next to a `.env`
+# (template: deploy/.env.example); CI uploads this file and runs deploy.sh on every push to master.
+name: cbf-ref
+
+x-app: &app
+  image: ghcr.io/sberan1/cbf-ref-interface:${IMAGE_TAG:-latest}
+  restart: unless-stopped
+  init: true
+  env_file: .env
+  environment:
+    DATABASE_URL: postgres://cbf:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/cbf
+    AMQP_URL: amqp://cbf:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}@rabbitmq:5672
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '5'
+
+# the sync processes need the queue as well
+x-after-migrations: &after-migrations
+  db:
+    condition: service_healthy
+  rabbitmq:
+    condition: service_healthy
+  migrate:
+    condition: service_completed_successfully
+
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    shm_size: 256mb
+    environment:
+      POSTGRES_USER: cbf
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: cbf
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # over TCP: the init-time server listens only on the socket
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U cbf -d cbf']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+      start_interval: 2s
+    logging: *logging
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    restart: unless-stopped
+    # the node name (rabbit@rabbitmq) selects the data directory, so it must survive recreation
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: cbf
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}
+    ports:
+      # management UI, only through an SSH tunnel: ssh -L 15672:127.0.0.1:15672 <vps>
+      - 127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+      start_interval: 5s
+    logging: *logging
+
+  # one-shot: applies drizzle/ migrations before the new app/worker start (idempotent)
+  migrate:
+    <<: *app
+    restart: 'no'
+    command: ['node', 'dist/migrate.js']
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    <<: *app
+    command: ['node', 'build']
+    ports:
+      # the reverse proxy on the host forwards here (see deploy/nginx.conf.example)
+      - 127.0.0.1:${APP_PORT:-3000}:3000
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
+
+  # fetch + normalize consumers; SIGTERM lets the in-flight task finish
+  worker:
+    <<: *app
+    command: ['node', 'dist/cbf.js', 'worker']
+    stop_grace_period: 60s
+    depends_on: *after-migrations
+
+  # enqueues the daily refresh (CBF_DAILY_AT) and the game window (CBF_WINDOW_EVERY_HOURS)
+  scheduler:
+    <<: *app
+    command: ['node', 'dist/cbf.js', 'scheduler']
+    depends_on: *after-migrations
+
+volumes:
+  pgdata:
+  rabbitmqdata:
