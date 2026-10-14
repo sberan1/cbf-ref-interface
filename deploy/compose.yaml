@@ -24,8 +24,8 @@ x-app: &app
   init: true
   env_file: .env
   environment:
-    DATABASE_URL: postgres://cbf:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/cbf
-    AMQP_URL: amqp://cbf:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}@rabbitmq:5672
+    DATABASE_URL: postgres://cbf:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@cbf-ref-db:5432/cbf
+    AMQP_URL: amqp://cbf:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}@cbf-ref-rabbitmq:5672
   logging: *gelf
 
 # the sync processes need the queue as well
@@ -41,6 +41,10 @@ services:
   db:
     image: postgres:17
     restart: unless-stopped
+    # the app also sits on the proxy network, where a plain `db` may be another stack's database
+    networks:
+      default:
+        aliases: [cbf-ref-db]
     shm_size: 256mb
     environment:
       POSTGRES_USER: cbf
@@ -61,6 +65,9 @@ services:
   rabbitmq:
     image: rabbitmq:4-management
     restart: unless-stopped
+    networks:
+      default:
+        aliases: [cbf-ref-rabbitmq]
     # the node name (rabbit@rabbitmq) selects the data directory, so it must survive recreation
     hostname: rabbitmq
     environment:
@@ -135,6 +142,9 @@ services:
   mongodb:
     image: mongo:7.0
     restart: unless-stopped
+    networks:
+      default:
+        aliases: [cbf-ref-mongodb]
     volumes:
       - mongodata:/data/db
     healthcheck:
@@ -148,6 +158,9 @@ services:
   opensearch:
     image: opensearchproject/opensearch:2.19.1
     restart: unless-stopped
+    networks:
+      default:
+        aliases: [cbf-ref-opensearch]
     environment:
       OPENSEARCH_JAVA_OPTS: -Xms${OPENSEARCH_HEAP:-1g} -Xmx${OPENSEARCH_HEAP:-1g}
       discovery.type: single-node
@@ -182,13 +195,13 @@ services:
       - -c
       - GRAYLOG_ROOT_PASSWORD_SHA2=$$(printf %s "$$GRAYLOG_ROOT_PASSWORD" | sha256sum | cut -d' ' -f1) exec /docker-entrypoint.sh
     environment:
-      GRAYLOG_ROOT_PASSWORD: ${GRAYLOG_ROOT_PASSWORD:?set GRAYLOG_ROOT_PASSWORD in .env}
-      GRAYLOG_PASSWORD_SECRET: ${GRAYLOG_PASSWORD_SECRET:?set GRAYLOG_PASSWORD_SECRET in .env}
+      GRAYLOG_ROOT_PASSWORD: ${GRAYLOG_ROOT_PASSWORD:-}
+      GRAYLOG_PASSWORD_SECRET: ${GRAYLOG_PASSWORD_SECRET:-}
       GRAYLOG_NODE_ID_FILE: /usr/share/graylog/data/config/node-id
       GRAYLOG_HTTP_BIND_ADDRESS: 0.0.0.0:9000
       GRAYLOG_HTTP_EXTERNAL_URI: ${GRAYLOG_EXTERNAL_URI:-http://127.0.0.1:9000/}
-      GRAYLOG_ELASTICSEARCH_HOSTS: http://opensearch:9200
-      GRAYLOG_MONGODB_URI: mongodb://mongodb:27017/graylog
+      GRAYLOG_ELASTICSEARCH_HOSTS: http://cbf-ref-opensearch:9200
+      GRAYLOG_MONGODB_URI: mongodb://cbf-ref-mongodb:27017/graylog
       GRAYLOG_ROOT_TIMEZONE: Europe/Prague
       GRAYLOG_MESSAGE_JOURNAL_MAX_SIZE: 2gb
     ports:
@@ -230,7 +243,7 @@ services:
     logging: *local-logging
 
 networks:
-  # the reverse proxy's network; must exist before `up` (it belongs to the proxy's own stack)
+  # the reverse proxy's network (it belongs to the proxy's own stack); deploy.sh creates it if missing
   proxy:
     name: ${PROXY_NETWORK:-nginx_default}
     external: true

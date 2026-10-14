@@ -164,6 +164,10 @@ describe('classifyCompetition: national (area 0)', () => {
 		expect(cup('Final4 – o 3. místo', null, true)).toBe('cp.z.semifinale');
 		expect(cup('finále', null, true)).toBe('cp.z.finale');
 		expect(cup(null, null)).toBe('cp.m.kolo1');
+		expect(cup('Český pohár mužů', '5')).toBe('cp.m.ctvrtfinale');
+		expect(cup('Český pohár žen', '4', true)).toBe('cp.z.ctvrtfinale');
+		expect(cup('Final4', '1', true)).toBe('cp.z.semifinale');
+		expect(cup('Final Four', '2')).toBe('cp.m.finale');
 	});
 });
 

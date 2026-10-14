@@ -32,9 +32,15 @@
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let requestId = 0;
 
+	/** Drops the pending and in-flight lookups, so an older answer can't reopen the list. */
+	function cancel() {
+		clearTimeout(timer);
+		requestId++;
+	}
+
 	function onInput() {
 		point = null;
-		clearTimeout(timer);
+		cancel();
 		const q = address.trim();
 		if (q.length < 3) {
 			suggestions = [];
@@ -51,12 +57,15 @@
 				open = list.length > 0;
 				active = -1;
 			} catch {
+				if (mine !== requestId) return;
 				suggestions = [];
+				open = false;
 			}
 		}, 250);
 	}
 
 	function pick(s: Suggestion) {
+		cancel();
 		address = s.label;
 		point = { lat: s.lat, lon: s.lon, municipality: s.municipality };
 		open = false;

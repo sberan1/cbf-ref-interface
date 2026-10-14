@@ -29,10 +29,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		(a, b) => b - a
 	) as number[];
 	const requested = Number(url.searchParams.get('s'));
+	const current = await currentSeasonStartYear(db);
 	const season = seasons.includes(requested)
 		? requested
-		: seasons.includes(await currentSeasonStartYear(db))
-			? await currentSeasonStartYear(db)
+		: seasons.includes(current)
+			? current
 			: (seasons[0] ?? null);
 	const rows = all.filter((r) => r.day.seasonYear === season).reverse();
 	const today = pragueToday();

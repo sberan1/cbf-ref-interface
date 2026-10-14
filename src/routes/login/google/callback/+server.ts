@@ -1,6 +1,10 @@
 import { redirect } from '@sveltejs/kit';
 import { ADMIN_EMAILS, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } from '$app/env/private';
-import { parseAdminEmails, signInWithGoogle } from '#lib/server/auth/accounts.ts';
+import {
+	AccountConflictError,
+	parseAdminEmails,
+	signInWithGoogle
+} from '#lib/server/auth/accounts.ts';
 import {
 	GOOGLE_STATE_COOKIE,
 	GOOGLE_VERIFIER_COOKIE,
@@ -43,7 +47,14 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 	}
 
 	const db = getDb();
-	const userId = await signInWithGoogle(db, profile, parseAdminEmails(ADMIN_EMAILS));
+	let userId: number;
+	try {
+		userId = await signInWithGoogle(db, profile, parseAdminEmails(ADMIN_EMAILS));
+	} catch (err) {
+		if (!(err instanceof AccountConflictError)) throw err;
+		log.warn('google sign-in: e-mail of another account', { err: err.message });
+		redirect(303, '/login?error=conflict');
+	}
 	const { token, expiresAt } = await createSession(db, userId);
 	log.info('signed in', { userId, provider: 'google' });
 	setSessionCookie(cookies, token, expiresAt);

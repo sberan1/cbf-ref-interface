@@ -209,7 +209,7 @@
 					Soutěže bez sazby ({formatNumber(e.unratedGames)} zápasů)
 				</summary>
 				<ul class="mt-2 divide-y divide-line">
-					{#each e.unrated as u (`${u.competitionName}:${u.seasonYear}:${u.reason}`)}
+					{#each e.unrated as u (u.key)}
 						<li class="flex items-baseline justify-between gap-3 py-1.5">
 							<span>
 								{u.competitionName ?? 'neznámá soutěž'}

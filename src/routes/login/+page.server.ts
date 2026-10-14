@@ -7,7 +7,8 @@ const errors: Record<string, string> = {
 	state: 'Přihlášení vypršelo nebo bylo přerušeno, zkus to znovu.',
 	google: 'Google přihlášení se nepodařilo dokončit, zkus to znovu.',
 	email: 'Google účet nemá ověřený e-mail.',
-	config: 'Přihlášení přes Google není na serveru nastavené.'
+	config: 'Přihlášení přes Google není na serveru nastavené.',
+	conflict: 'Účet s tímto e-mailem patří jinému Google účtu. Kontaktuj správce.'
 };
 
 export const load: PageServerLoad = ({ locals, url }) => {

@@ -194,5 +194,8 @@ export function mealFor(date: string, list = mealRates): MealRates | undefined {
 
 /** Meal allowance for a trip of `hours`: the highest tier reached, 0 under 5 hours. */
 export function mealAmount(rates: MealRates, hours: number): number {
-	return rates.tiers.filter((t) => hours >= t.hours).at(-1)?.amount ?? 0;
+	// § 163 ZP: the first tier from 5 hours inclusive, the higher ones only above 12 and 18 hours
+	return (
+		rates.tiers.filter((t, i) => (i === 0 ? hours >= t.hours : hours > t.hours)).at(-1)?.amount ?? 0
+	);
 }

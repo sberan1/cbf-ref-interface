@@ -22,7 +22,7 @@ export const tripStopSchema = z.object({
 	/** pickup / drop-off: who */
 	colleague: z.string().max(120).nullish(),
 	/** venue stops: the games played there */
-	gameIds: z.array(z.number().int()).max(10).nullish()
+	gameIds: z.array(z.number().int()).max(50).nullish()
 });
 export type TripStop = z.infer<typeof tripStopSchema>;
 

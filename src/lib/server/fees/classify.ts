@@ -65,9 +65,16 @@ function cupStage(
 	if (/osmifinal/.test(t)) return 'osmifinale';
 	if (/ctvrtfinal/.test(t)) return 'ctvrtfinale';
 	if (/semifinal|o 3\. misto|o treti misto/.test(t)) return 'semifinale';
+	// a "Final4" / "Final four" phase holds semifinals and the final: decided by the round below
+	if (/final\s*(4|four)/.test(t)) return null;
 	if (/finale|final/.test(t)) return 'finale';
 	return null;
 }
+
+const CUP_ROUNDS = {
+	m: ['kolo1', 'kolo2', 'kolo3', 'osmifinale', 'ctvrtfinale', 'semifinale', 'finale'],
+	z: ['kolo1', 'kolo2', 'kolo3', 'ctvrtfinale', 'semifinale', 'finale']
+} as const;
 
 function czechCup(info: CompetitionInfo, female: boolean): Classification {
 	const g = female ? 'z' : 'm';
@@ -76,8 +83,14 @@ function czechCup(info: CompetitionInfo, female: boolean): Classification {
 		return { key: 'cp.z.kolo3', assumption: 'osmifinále žen jako 3. kolo' };
 	if (stage) return { key: `cp.${g}.${stage}` as CupKey };
 	const n = roundNumber(info);
-	if (n !== null && n >= 1 && n <= 3) return { key: `cp.${g}.kolo${n}` as CupKey };
-	if (n === 4 && !female) return { key: 'cp.m.osmifinale' };
+	if (/final\s*(4|four)/.test(foldText(`${info.phaseName ?? ''} ${info.round ?? ''}`))) {
+		return n !== null && n >= 2
+			? { key: `cp.${g}.finale`, assumption: 'Final4: 2. kolo počítáno jako finále' }
+			: { key: `cp.${g}.semifinale`, assumption: 'Final4: počítáno jako semifinále' };
+	}
+	const rounds = CUP_ROUNDS[g];
+	if (n !== null && n >= 1 && n <= rounds.length)
+		return { key: `cp.${g}.${rounds[n - 1]}` as CupKey };
 	return { key: `cp.${g}.kolo1`, assumption: 'kolo poháru neznámé, počítáno jako 1. kolo' };
 }
 

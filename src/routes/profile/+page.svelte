@@ -37,7 +37,14 @@
 			Odsud začínají a končí cesty na zápasy. Obec se porovnává s místem zápasu kvůli náhradě za
 			všední den (rozhodčí z místa konání ji nedostává).
 		</p>
-		<form method="POST" action="?/home" use:enhance class="mt-3 space-y-2">
+		<form
+			method="POST"
+			action="?/home"
+			use:enhance={() =>
+				async ({ update }) =>
+					update({ reset: false })}
+			class="mt-3 space-y-2"
+		>
 			<label for="home" class="sr-only">Adresa bydliště</label>
 			<AddressInput id="home" bind:address={homeAddress} bind:point={homePoint} required />
 			<input type="hidden" name="address" value={homeAddress} />
@@ -49,7 +56,9 @@
 					class="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:opacity-90"
 					>Uložit</button
 				>
-				{#if form?.homeSaved}<span class="text-xs text-ink-2">Uloženo.</span>{/if}
+				{#if form?.homeSaved}<span class="text-xs text-ink-2"
+						>Uloženo. Automatické cesty se přepočítají v Cestách.</span
+					>{/if}
 				{#if form?.homeError}<span class="text-xs text-danger" role="alert">{form.homeError}</span
 					>{/if}
 			</div>

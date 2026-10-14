@@ -63,6 +63,8 @@ describe('rates', () => {
 		expect(mealAmount(mealFor('2026-10-10')!, 4.99)).toBe(0);
 		expect(mealAmount(mealFor('2026-10-10')!, 12.5)).toBe(236);
 		expect(mealAmount(mealFor('2026-10-10')!, 19)).toBe(370);
+		expect(mealAmount(mealFor('2026-10-10')!, 12)).toBe(155);
+		expect(mealAmount(mealFor('2026-10-10')!, 18)).toBe(236);
 		expect(mealAmount(mealFor('2025-11-01')!, 6)).toBe(148);
 		expect(mealAmount(mealFor('2023-10-01')!, 6)).toBe(129);
 		// MPSV decrees: 2017–2022 including the raise from 20. 8. 2022

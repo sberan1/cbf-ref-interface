@@ -190,7 +190,9 @@ export async function resolveStops(maps: MapProvider, stops: TripStop[]): Promis
 			out.push(s);
 			continue;
 		}
-		const query = s.address || s.label;
+		// a typed stop is found by its address only: its label is a colleague's name or a place
+		// nickname; a venue without a street may still be found by name and city
+		const query = s.kind === 'venue' ? s.address || s.label : s.address;
 		const found = query ? await maps.geocode(query) : null;
 		out.push(
 			found
@@ -239,6 +241,12 @@ export interface StoredTrip {
 	computedAt: Date | null;
 }
 
+/** Stored stops are ours; a schema made stricter later must not make old trips unreadable. */
+export function parseStops(raw: unknown): TripStop[] {
+	const parsed = tripStopSchema.array().safeParse(raw);
+	return parsed.success ? parsed.data : Array.isArray(raw) ? (raw as TripStop[]) : [];
+}
+
 export async function loadTrips(db: DbOrTx, userId: number, dates?: string[]) {
 	const rows = await db
 		.select()
@@ -256,7 +264,7 @@ export async function loadTrips(db: DbOrTx, userId: number, dates?: string[]) {
 				date: r.date,
 				status: r.status,
 				mode: r.mode,
-				stops: tripStopSchema.array().parse(r.stops),
+				stops: parseStops(r.stops),
 				legs: (r.legs ?? []) as TripLeg[],
 				ticketCost: r.ticketCost,
 				extraCost: r.extraCost,
@@ -323,8 +331,13 @@ export async function autoFill(
 	);
 	const todo = days.filter((d) => !existing.has(d.date));
 	let filled = 0;
+	let tried = 0;
 	const failed: string[] = [];
-	for (const day of todo.slice(0, limit)) {
+	// failing days (no home or venue position) stay unfilled and are cheap to retry from the cache,
+	// so they don't count against the limit and can't stall the remaining days
+	for (const day of todo) {
+		if (filled >= limit) break;
+		tried++;
 		try {
 			const stops = await resolveStops(maps, defaultStops(day, home));
 			const legs = await routeLegs(maps, stops);
@@ -344,5 +357,5 @@ export async function autoFill(
 			failed.push(`${day.date}: ${err.message}`);
 		}
 	}
-	return { filled, failed, remaining: Math.max(0, todo.length - limit) };
+	return { filled, failed, remaining: todo.length - tried };
 }

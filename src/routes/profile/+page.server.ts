@@ -3,7 +3,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { requireApproved } from '#lib/server/auth/guards.ts';
 import { getDb } from '#lib/server/db/index.ts';
-import { appPlace, appUser } from '#lib/server/db/schema/index.ts';
+import { appPlace, appTrip, appUser } from '#lib/server/db/schema/index.ts';
 import { getMaps } from '#lib/server/travel/service.ts';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -55,17 +55,23 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const address = String(form.get('address') ?? '').trim();
 		if (!address) return fail(400, { homeError: 'Zadej adresu.' });
+		if (address.length > 300) return fail(400, { homeError: 'Adresa je moc dlouhá.' });
 		const found = await locate(form, address);
 		if (!found) return fail(400, { homeError: notFound() });
-		await getDb()
-			.update(appUser)
-			.set({
-				homeAddress: address,
-				homeLat: found.lat,
-				homeLon: found.lon,
-				homeMunicipality: found.municipality ?? null
-			})
-			.where(eq(appUser.id, user.id));
+		await getDb().transaction(async (tx) => {
+			await tx
+				.update(appUser)
+				.set({
+					homeAddress: address,
+					homeLat: found.lat,
+					homeLon: found.lon,
+					homeMunicipality: found.municipality ?? null
+				})
+				.where(eq(appUser.id, user.id));
+			// default trips start at the old home: drop them, "Spočítat nevyplněné dny" recomputes them;
+			// confirmed ones get the new home when opened and saved in the wizard
+			await tx.delete(appTrip).where(and(eq(appTrip.userId, user.id), eq(appTrip.status, 'auto')));
+		});
 		return { homeSaved: true };
 	},
 	addPlace: async ({ locals, request }) => {
@@ -76,6 +82,7 @@ export const actions: Actions = {
 			.slice(0, 80);
 		const address = String(form.get('address') ?? '').trim();
 		if (!label || !address) return fail(400, { placeError: 'Vyplň název i adresu.' });
+		if (address.length > 300) return fail(400, { placeError: 'Adresa je moc dlouhá.' });
 		const found = await locate(form, address);
 		if (!found) return fail(400, { placeError: notFound() });
 		const values = {

@@ -3,7 +3,7 @@
  * paired with their official record and an admin approves it. Admins are listed in
  * `ADMIN_EMAILS`; their own pairing needs no approval.
  */
-import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client';
 import { appOAuthAccount, appUser, official } from '../db/schema';
 
@@ -22,6 +22,9 @@ export function parseAdminEmails(value: string | undefined): Set<string> {
 			.filter(Boolean)
 	);
 }
+
+/** The e-mail belongs to an account linked to a different Google identity. */
+export class AccountConflictError extends Error {}
 
 /** Finds or creates the account of a Google identity; the role follows `ADMIN_EMAILS`. */
 export async function signInWithGoogle(
@@ -46,6 +49,17 @@ export async function signInWithGoogle(
 				.select({ id: appUser.id })
 				.from(appUser)
 				.where(eq(appUser.email, email));
+			if (byEmail) {
+				// never hand an account over to another Google identity with the same address
+				// (a recycled Workspace address, a recreated Google account): an admin sorts it out
+				const [other] = await tx
+					.select({ sub: appOAuthAccount.providerUserId })
+					.from(appOAuthAccount)
+					.where(
+						and(eq(appOAuthAccount.provider, 'google'), eq(appOAuthAccount.userId, byEmail.id))
+					);
+				if (other) throw new AccountConflictError(`account ${byEmail.id} has another Google ID`);
+			}
 			userId =
 				byEmail?.id ??
 				(
@@ -69,6 +83,30 @@ export async function signInWithGoogle(
 
 export class PairingError extends Error {}
 
+/** Account already paired with the official or with another record of the same person. */
+async function pairedElsewhere(db: DbOrTx, officialId: number, userId: number) {
+	const [target] = await db
+		.select({ groupId: official.groupId })
+		.from(official)
+		.where(eq(official.id, officialId));
+	const ids =
+		target?.groupId == null
+			? [officialId]
+			: (
+					await db
+						.select({ id: official.id })
+						.from(official)
+						.where(eq(official.groupId, target.groupId))
+				).map((r) => r.id);
+	const [taken] = await db
+		.select({ id: appUser.id })
+		.from(appUser)
+		.where(
+			and(inArray(appUser.officialId, [...new Set([officialId, ...ids])]), ne(appUser.id, userId))
+		);
+	return !!taken;
+}
+
 /**
  * "To jsem já": asks to be paired with an official. Admins are approved at once; everybody else
  * waits for an admin. An official already paired with another account cannot be requested.
@@ -84,11 +122,7 @@ export async function requestPairing(
 		.from(official)
 		.where(eq(official.id, officialId));
 	if (!target) throw new PairingError('Vybraný rozhodčí v databázi není.');
-	const [taken] = await db
-		.select({ id: appUser.id })
-		.from(appUser)
-		.where(and(eq(appUser.officialId, officialId), ne(appUser.id, user.id)));
-	if (taken) {
+	if (await pairedElsewhere(db, officialId, user.id)) {
 		throw new PairingError('Tento rozhodčí už je spárovaný s jiným účtem. Kontaktuj správce.');
 	}
 	const admin = user.role === 'admin';
@@ -124,11 +158,8 @@ export async function reviewAccount(
 	if (decision === 'approve') {
 		const target = officialId ?? user.requestedOfficialId;
 		if (!target) throw new PairingError('Účet nemá vybraného rozhodčího.');
-		const [taken] = await db
-			.select({ id: appUser.id })
-			.from(appUser)
-			.where(and(eq(appUser.officialId, target), ne(appUser.id, userId)));
-		if (taken) throw new PairingError(`Rozhodčí ${target} už je spárovaný s jiným účtem.`);
+		if (await pairedElsewhere(db, target, userId))
+			throw new PairingError(`Rozhodčí ${target} už je spárovaný s jiným účtem.`);
 		const [exists] = await db
 			.select({ id: official.id })
 			.from(official)

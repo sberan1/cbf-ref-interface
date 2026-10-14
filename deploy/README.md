@@ -158,7 +158,7 @@ GELF do **Graylogu**, který běží ve stejném compose (MongoDB + OpenSearch +
 „GELF UDP (docker)“ a extraktor, který z JSON logů aplikace udělá pole s prefixem `app_`
 (`app_msg`, `app_level`, `app_path`, `app_status`, `app_ms`, `app_userId`, `app_err`…).
 
-**Před merge** přidej do `/opt/cbf-ref/.env` (jinak `docker compose` odmítne start):
+Přidej do `/opt/cbf-ref/.env` (bez nich `deploy.sh` logovací stack přeskočí, aplikace se nasadí i tak; chyba logovacího stacku deploy neshodí):
 
 ```sh
 cd /opt/cbf-ref

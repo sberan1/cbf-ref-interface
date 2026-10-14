@@ -14,6 +14,7 @@ import {
 	defaultStops,
 	homeStop,
 	loadTrips,
+	parseStops,
 	resolveStops,
 	routeLegs,
 	saveTrip,
@@ -60,7 +61,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		.orderBy(desc(appTrip.date))
 		.limit(30);
 	const copySources = recent
-		.map((r) => ({ date: r.date, stops: tripStopSchema.array().parse(r.stops) }))
+		.map((r) => ({ date: r.date, stops: parseStops(r.stops) }))
 		.filter((r) => r.stops.some((s) => s.kind === 'pickup' || s.kind === 'dropoff'))
 		.slice(0, 8)
 		.map((r) => ({
@@ -153,6 +154,11 @@ export const actions: Actions = {
 			})
 			.filter((s): s is TripStop => s !== null);
 		if (v < venues.length) stops.splice(stops.length - 1, 0, ...venues.slice(v));
+		// the trip starts and ends at home whatever the client sent
+		if (home) {
+			if (stops[0]?.kind !== 'home') stops.unshift(homeStop(home));
+			if (stops.length < 2 || stops.at(-1)?.kind !== 'home') stops.push(homeStop(home));
+		}
 
 		const maps = getMaps(db);
 		let resolved: TripStop[];

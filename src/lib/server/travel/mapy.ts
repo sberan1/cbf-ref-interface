@@ -129,7 +129,16 @@ export function cachedMaps(db: DbOrTx, api: MapProvider | null): MapProvider & {
 						};
 			}
 			if (!api) return null;
-			const found = await api.geocode(query);
+			let found: Awaited<ReturnType<MapProvider['geocode']>>;
+			try {
+				found = await api.geocode(query);
+			} catch (err) {
+				// not cached: an outage must not store "not found"
+				log.warn('mapy geocode failed', {
+					err: err instanceof Error ? err.message : String(err)
+				});
+				return null;
+			}
 			await db
 				.insert(appGeoCache)
 				.values({
