@@ -81,8 +81,13 @@ services:
     <<: *app
     command: ['node', 'build']
     ports:
-      # the reverse proxy on the host forwards here (see deploy/nginx.conf.example)
+      # a reverse proxy on the host forwards here (see deploy/nginx.conf.example)
       - 127.0.0.1:${APP_PORT:-3000}:3000
+    networks:
+      default:
+      # a reverse proxy running in Docker (Nginx Proxy Manager) reaches the app as cbf-ref-app:3000
+      proxy:
+        aliases: [cbf-ref-app]
     depends_on:
       db:
         condition: service_healthy
@@ -112,6 +117,12 @@ services:
     <<: *app
     command: ['node', 'dist/cbf.js', 'scheduler']
     depends_on: *after-migrations
+
+networks:
+  # the reverse proxy's network; must exist before `up` (it belongs to the proxy's own stack)
+  proxy:
+    name: ${PROXY_NETWORK:-nginx_default}
+    external: true
 
 volumes:
   pgdata:
