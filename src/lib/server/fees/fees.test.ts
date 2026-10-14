@@ -267,6 +267,15 @@ describe('gameFee', () => {
 			amount: 800,
 			provenance: 'assumed'
 		});
+		// 2024/25 kept the 2023/24 rates; the v3 raise counts from the start of 2026/27
+		expect(gameFee(game({ ...prebor, date: '2025-03-10' }))).toMatchObject({
+			amount: 800,
+			provenance: 'reported'
+		});
+		expect(gameFee(game({ ...prebor, date: '2026-09-06' }))).toMatchObject({
+			amount: 1000,
+			provenance: 'document'
+		});
 		expect(gameFee(game({ ...prebor, date: '2015-02-10' }))).toMatchObject({ amount: null });
 	});
 

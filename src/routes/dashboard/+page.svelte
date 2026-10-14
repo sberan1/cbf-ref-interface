@@ -137,8 +137,8 @@
 		{#if e.estimated > 0}
 			<p class="px-4 pb-3 text-xs text-ink-2">
 				Z toho {formatKc(e.estimated)} podle odhadnutých sazeb (v seznamech zápasů označené ≈): období,
-				ke kterým přehled odměn nemáme (ČBF před 2023/24, Praha 2020–2023 a 2024/25), a soutěže, u kterých
-				zařazení do sazebníku odhadujeme.
+				ke kterým přehled odměn nemáme (ČBF před 2023/24, Praha 2020–2023), a soutěže, u kterých zařazení
+				do sazebníku odhadujeme.
 			</p>
 		{/if}
 

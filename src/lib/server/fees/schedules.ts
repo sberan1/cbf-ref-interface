@@ -301,8 +301,8 @@ export const schedules: FeeSchedule[] = [
 		scope: 'praha',
 		validFrom: '2024-07-01',
 		validTo: '2025-07-01',
-		provenance: 'assumed',
-		source: 'předpoklad: stejné jako 2023/24',
+		provenance: 'reported',
+		source: 'podle rozhodčího: stejné jako 2023/24',
 		singleReferee: pragueSingle,
 		rates: pragueLadder({ ostatni: 400, mini: 300, u11_3x3: 150 })
 	},
@@ -321,6 +321,7 @@ export const schedules: FeeSchedule[] = [
 		scope: 'praha',
 		validFrom: '2026-07-01',
 		provenance: 'document',
+		// the raise of the 30. 9. 2026 update applies from the start of the season (per the referee)
 		source: 'Přehled odměn rozhodčích 2026/27 (aktualizace 30. 9. 2026)',
 		singleReferee: pragueSingle,
 		rates: pragueLadder({ ostatni: 600, mini: 400, u11_3x3: 200 })
