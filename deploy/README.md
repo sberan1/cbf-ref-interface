@@ -169,8 +169,16 @@ echo "GRAYLOG_EXTERNAL_URI=https://logs.<tvoje doména>/" >> .env
 echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-opensearch.conf && sudo sysctl --system
 ```
 
-- **Paměť:** celý logovací stack si vezme zhruba 2,5–3 GB RAM. OpenSearch heap nastavíš přes
-  `OPENSEARCH_HEAP` (výchozí `1g`).
+- **Paměť:** heapy jsou 512 MB (`OPENSEARCH_HEAP`, `GRAYLOG_HEAP`) a kontejnery mají tvrdé limity
+  (`OPENSEARCH_MEM_LIMIT` 1536m, `GRAYLOG_MEM_LIMIT` 1280m, MongoDB 512m). Naměřeno v klidu:
+  Graylog 0,85 GB, OpenSearch 1,0 GB, MongoDB 0,2 GB. Heap zvedej spolu s limitem kontejneru.
+- **Disk:** logy jdou do indexů po 1 GiB (`GRAYLOG_INDEX_MAX_BYTES`) a drží se 20 nejnovějších
+  (`GRAYLOG_MAX_INDICES`), nejstarší se mažou. Logy tak zaberou nejvýš zhruba 21 GB, s journalem
+  (`GRAYLOG_JOURNAL_MAX_SIZE`, 1 GB) zhruba 22 GB. Limit nastavuje `graylog-setup` při každém
+  deployi i na už běžícím Graylogu. Graylog 6 jinak zakládá index set s mazáním podle stáří
+  (30–40 dní) bez limitu velikosti. Image logovacího stacku zaberou dalších ~4,7 GB.
+- **Plný disk:** OpenSearch při 95 % zaplnění disku přepne indexy jen pro čtení a Graylog pak logy
+  jen hromadí v journalu. Hlídej `df -h`.
 - **Web UI:** Graylog je v síti proxy jako `cbf-ref-graylog:9000`. V NPM přidej proxy host
   (např. `logs.<doména>`) s Forward Hostname `cbf-ref-graylog`, port `9000`, scheme `http`. Přihlášení je `admin` a heslo z `GRAYLOG_ROOT_PASSWORD`. Bez proxy přes
   SSH tunel: `ssh -L 9000:127.0.0.1:9000 deploy@<vps>`, pak `http://localhost:9000`.

@@ -142,6 +142,9 @@ services:
   mongodb:
     image: mongo:7.0
     restart: unless-stopped
+    # Graylog keeps only its configuration here: a small cache is plenty
+    command: ['--wiredTigerCacheSizeGB', '0.25']
+    mem_limit: 512m
     networks:
       default:
         aliases: [cbf-ref-mongodb]
@@ -162,7 +165,7 @@ services:
       default:
         aliases: [cbf-ref-opensearch]
     environment:
-      OPENSEARCH_JAVA_OPTS: -Xms${OPENSEARCH_HEAP:-1g} -Xmx${OPENSEARCH_HEAP:-1g}
+      OPENSEARCH_JAVA_OPTS: -Xms${OPENSEARCH_HEAP:-512m} -Xmx${OPENSEARCH_HEAP:-512m}
       discovery.type: single-node
       action.auto_create_index: 'false'
       # single node on a private network: no TLS / auth plugin (sets plugins.security.disabled)
@@ -170,6 +173,8 @@ services:
       DISABLE_SECURITY_PLUGIN: 'true'
     ulimits:
       nofile: { soft: 65536, hard: 65536 }
+    # heap + off-heap (Lucene, network buffers); raise together with OPENSEARCH_HEAP
+    mem_limit: ${OPENSEARCH_MEM_LIMIT:-1536m}
     volumes:
       - opensearchdata:/usr/share/opensearch/data
     healthcheck:
@@ -203,7 +208,16 @@ services:
       GRAYLOG_ELASTICSEARCH_HOSTS: http://cbf-ref-opensearch:9200
       GRAYLOG_MONGODB_URI: mongodb://cbf-ref-mongodb:27017/graylog
       GRAYLOG_ROOT_TIMEZONE: Europe/Prague
-      GRAYLOG_MESSAGE_JOURNAL_MAX_SIZE: 2gb
+      GRAYLOG_SERVER_JAVA_OPTS: -Xms${GRAYLOG_HEAP:-512m} -Xmx${GRAYLOG_HEAP:-512m}
+      # disk (ADR 0009): messages waiting for OpenSearch, and the log indices (1 GiB each, the 20
+      # newest kept: logs stay under ~21 GB, ~22 GB with the journal). These seed the index sets on
+      # the first start; graylog-setup enforces the same limits on the default index set later.
+      GRAYLOG_MESSAGE_JOURNAL_MAX_SIZE: ${GRAYLOG_JOURNAL_MAX_SIZE:-1gb}
+      GRAYLOG_ROTATION_STRATEGY: size
+      GRAYLOG_ELASTICSEARCH_MAX_SIZE_PER_INDEX: ${GRAYLOG_INDEX_MAX_BYTES:-1073741824}
+      GRAYLOG_RETENTION_STRATEGY: delete
+      GRAYLOG_ELASTICSEARCH_MAX_NUMBER_OF_INDICES: ${GRAYLOG_MAX_INDICES:-20}
+    mem_limit: ${GRAYLOG_MEM_LIMIT:-1280m}
     ports:
       # GELF from the Docker daemon of this host
       - 127.0.0.1:${GELF_PORT:-12201}:12201/udp
@@ -236,6 +250,9 @@ services:
     <<: *app
     restart: 'no'
     command: ['node', 'dist/graylog-setup.js']
+    environment:
+      GRAYLOG_INDEX_MAX_BYTES: ${GRAYLOG_INDEX_MAX_BYTES:-1073741824}
+      GRAYLOG_MAX_INDICES: ${GRAYLOG_MAX_INDICES:-20}
     # waits for the Graylog API itself (up to 10 minutes)
     depends_on:
       graylog:
