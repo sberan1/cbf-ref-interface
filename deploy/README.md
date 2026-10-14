@@ -22,7 +22,7 @@ Na VPS běží jeden image ve více rolích (`compose.yaml`):
 | `db`        | PostgreSQL 17, volume `pgdata`                                           |
 | `rabbitmq`  | fronta syncu, management UI na `127.0.0.1:15672`                         |
 | `migrate`   | jednorázově aplikuje migrace před každým startem aplikace (idempotentní) |
-| `app`       | SvelteKit web na `127.0.0.1:3000`, ven jen přes tvůj nginx               |
+| `app`       | SvelteKit web na `127.0.0.1:3000` a v síti proxy jako `cbf-ref-app:3000` |
 | `worker`    | stahování z ČBF a normalizace (1 request / 2–3 s)                        |
 | `scheduler` | denní obnova (`CBF_DAILY_AT`, výchozí 04:30) a okno zápasů každých 6 h   |
 
@@ -99,20 +99,21 @@ Bez nich aplikace nepozná svůj veřejný origin a přihlášení skončí na *
 formulářů kontroluje hlavičku `Origin`). Soubor pro basic auth vytvoříš příkazem
 `htpasswd -c /etc/nginx/cbf-ref.htpasswd <jméno>` (balíček `apache2-utils`).
 
-Pokud nginx nebo Traefik běží v Dockeru, není `127.0.0.1:3000` z jeho kontejneru vidět. Na VPS
-vytvoř vedle `compose.yaml` soubor `compose.override.yaml`. Compose ho načte automaticky a CI ho
-nepřepisuje. Např. připojení `app` do sítě proxy:
+### Proxy v Dockeru (Nginx Proxy Manager)
 
-```yaml
-services:
-  app:
-    networks: [default, proxy]
-networks:
-  proxy:
-    external: true
-```
+Kontejner `app` je připojený i do sítě reverse proxy, výchozí je `nginx_default` (síť stacku
+Nginx Proxy Manageru). Jinou síť nastavíš v `.env` přes `PROXY_NETWORK`. Síť musí existovat
+dřív, než se stack spustí, jinak `docker compose up` skončí chybou `network … not found`.
 
-Proxy pak míří na `http://app:3000` (u Traefiku přidej labels do stejného override).
+V NPM nastav proxy host takhle:
+
+- **Forward Hostname / IP:** `cbf-ref-app`
+- **Forward Port:** `3000`
+- **Scheme:** `http`
+
+NPM posílá `Host` i `X-Forwarded-Proto` sám. Když access list s basic auth vrací 403 (stránka
+`403 Forbidden` / `openresty`), přidej mu v záložce **Access** pravidlo `allow` → `all`.
+„Satisfy Any“ nech vypnuté, jinak by stránka šla otevřít i bez hesla.
 
 ## 4. První spuštění
 

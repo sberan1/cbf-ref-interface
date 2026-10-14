@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { formatGameStart } from '#lib/format.ts';
+	import { formatGameStart, formatKc } from '#lib/format.ts';
 
 	interface Game {
 		id: number;
@@ -15,6 +15,8 @@
 		venue: string | null;
 		city: string | null;
 		colleagues: string | null;
+		/** fee of the delegation (referees only); `estimate` = assumed rate or mapping */
+		fee?: { amount: number | null; estimate: boolean; detail: string } | null;
 	}
 
 	interface Props {
@@ -44,6 +46,16 @@
 								]}
 							></span>
 							{g.roleName}
+							{#if g.role === 'referee' && g.fee}
+								<span class="text-muted">·</span>
+								{#if g.fee.amount === null}
+									<span class="text-muted" title={g.fee.detail}>bez sazby</span>
+								{:else}
+									<span class="font-medium text-ink tabular-nums" title={g.fee.detail}
+										>{g.fee.estimate ? '≈ ' : ''}{formatKc(g.fee.amount)}</span
+									>
+								{/if}
+							{/if}
 						</span>
 					</div>
 					<p class="mt-1 text-sm font-medium">

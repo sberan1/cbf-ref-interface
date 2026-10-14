@@ -19,6 +19,10 @@ export interface TimelineBucket {
 	commissioner: number;
 	/** bucket lies (at least partly) in the future: delegations, not played games */
 	future: boolean;
+	/** earnings chart: part of `referee` computed from assumed rates */
+	estimated?: number;
+	/** earnings chart: part of `referee` from upcoming delegations */
+	expected?: number;
 }
 
 export function isGranularity(value: string | null): value is Granularity {
@@ -98,6 +102,11 @@ export function fillTimeline(
 		out.push({ key, label: bucketLabel(granularity, key), ...entry, future: key > nowKey });
 	}
 	return out;
+}
+
+/** Bucket key of a game dated `isoDate` (YYYY-MM-DD) in season `seasonYear`. */
+export function dateBucketKey(granularity: Granularity, isoDate: string, seasonYear: number) {
+	return bucketKey(granularity, new Date(`${isoDate}T00:00:00Z`), seasonYear);
 }
 
 /** Bucket key for "now", the right edge of the default range. */

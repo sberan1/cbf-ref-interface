@@ -33,6 +33,11 @@ export function formatNumber(n: number) {
 	return number.format(n);
 }
 
+/** "12 300 Kč" */
+export function formatKc(n: number) {
+	return `${number.format(n)} Kč`;
+}
+
 export function seasonName(startYear: number | null) {
 	return startYear === null ? '' : `${startYear}/${String((startYear + 1) % 100).padStart(2, '0')}`;
 }
