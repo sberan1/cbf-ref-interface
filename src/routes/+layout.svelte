@@ -13,12 +13,30 @@
 
 <div class="min-h-screen font-sans">
 	<header class="border-b border-line bg-surface">
-		<div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
+		<div
+			class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3"
+		>
 			<a href={resolve('/')} class="text-base font-semibold tracking-tight text-ink">Rozhodčí ČBF</a
 			>
 			{#if data.user}
+				<nav class="flex flex-wrap items-center gap-1 text-sm" aria-label="Hlavní">
+					{#if data.user.approved}
+						<a href={resolve('/dashboard')} class="rounded px-2 py-1 text-ink-2 hover:text-ink"
+							>Přehled</a
+						>
+						<a href={resolve('/trips')} class="rounded px-2 py-1 text-ink-2 hover:text-ink"
+							>Cesty a náhrady</a
+						>
+						<a href={resolve('/profile')} class="rounded px-2 py-1 text-ink-2 hover:text-ink"
+							>Profil</a
+						>
+					{/if}
+					{#if data.user.isAdmin}
+						<a href={resolve('/admin')} class="rounded px-2 py-1 text-ink-2 hover:text-ink">Účty</a>
+					{/if}
+				</nav>
 				<div class="flex items-center gap-3 text-sm">
-					<span class="text-ink-2">{data.user.firstName} {data.user.lastName}</span>
+					<span class="hidden text-ink-2 sm:inline">{data.user.displayName}</span>
 					<form method="POST" action="/logout">
 						<button
 							type="submit"

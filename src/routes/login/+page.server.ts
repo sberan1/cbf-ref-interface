@@ -1,28 +1,21 @@
-import { fail, redirect } from '@sveltejs/kit';
-import { pairAndCreateSession, setSessionCookie } from '#lib/server/auth/session.ts';
-import { getDb } from '#lib/server/db/index.ts';
-import { officialExists, searchOfficials } from '#lib/server/referee/queries.ts';
-import type { Actions, PageServerLoad } from './$types';
+import { redirect } from '@sveltejs/kit';
+import { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } from '$app/env/private';
+import { landingPath } from '#lib/server/auth/guards.ts';
+import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals, url }) => {
-	if (locals.user) redirect(303, '/dashboard');
-	const q = (url.searchParams.get('q') ?? '').slice(0, 100);
-	return { q, results: q.trim().length >= 2 ? await searchOfficials(getDb(), q) : [] };
+const errors: Record<string, string> = {
+	state: 'Přihlášení vypršelo nebo bylo přerušeno, zkus to znovu.',
+	google: 'Google přihlášení se nepodařilo dokončit, zkus to znovu.',
+	email: 'Google účet nemá ověřený e-mail.',
+	config: 'Přihlášení přes Google není na serveru nastavené.',
+	conflict: 'Účet s tímto e-mailem patří jinému Google účtu. Kontaktuj správce.'
 };
 
-export const actions: Actions = {
-	default: async ({ request, cookies }) => {
-		const form = await request.formData();
-		const officialId = Number(form.get('officialId'));
-		if (
-			!Number.isInteger(officialId) ||
-			officialId <= 0 ||
-			!(await officialExists(getDb(), officialId))
-		) {
-			return fail(400, { error: 'Vybraný rozhodčí v databázi není.' });
-		}
-		const { token, expiresAt } = await pairAndCreateSession(getDb(), officialId);
-		setSessionCookie(cookies, token, expiresAt);
-		redirect(303, '/dashboard');
-	}
+export const load: PageServerLoad = ({ locals, url }) => {
+	if (locals.user) redirect(303, landingPath(locals.user));
+	const code = url.searchParams.get('error');
+	return {
+		configured: !!GOOGLE_CLIENT_ID && !!GOOGLE_CLIENT_SECRET,
+		error: code ? (errors[code] ?? errors.google) : null
+	};
 };

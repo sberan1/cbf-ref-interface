@@ -18,6 +18,7 @@
 	] as const;
 	const metricParam = $derived(data.metric === 'earnings' ? '&m=kc' : '');
 	const e = $derived(data.earnings);
+	const al = $derived(data.allowances);
 
 	const s = $derived(data.summary);
 	const tiles = $derived([
@@ -134,6 +135,25 @@
 				<p class="text-xs text-muted">nezapočtené</p>
 			</div>
 		</div>
+		<div
+			class="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3 text-sm"
+		>
+			<p class="text-ink-2">
+				Náhrady (cestovné, stravné, všední den):
+				<span class="font-semibold text-ink tabular-nums">{formatKc(al.all.total)}</span>
+				celkem,
+				<span class="font-medium text-ink tabular-nums">{formatKc(al.currentSeason.total)}</span>
+				v sezóně {seasonName(data.currentSeasonYear)}
+				{#if al.all.days > al.all.filled}
+					· {al.all.days - al.all.filled} dnů nevyplněno
+				{/if}
+			</p>
+			<a
+				href={resolve('/trips')}
+				class="rounded-md border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent"
+				>Cesty a náhrady</a
+			>
+		</div>
 		{#if e.estimated > 0}
 			<p class="px-4 pb-3 text-xs text-ink-2">
 				Z toho {formatKc(e.estimated)} podle odhadnutých sazeb (v seznamech zápasů označené ≈): období,
@@ -152,6 +172,7 @@
 							<th class="px-4 py-2 text-right font-medium">Vyděláno</th>
 							<th class="hidden px-4 py-2 text-right font-medium sm:table-cell">z toho odhad</th>
 							<th class="px-4 py-2 text-right font-medium">Očekáváno</th>
+							<th class="px-4 py-2 text-right font-medium">Náhrady</th>
 							<th class="hidden px-4 py-2 text-right font-medium sm:table-cell">Bez sazby</th>
 						</tr>
 					</thead>
@@ -168,6 +189,9 @@
 								>
 								<td class="px-4 py-2 text-right whitespace-nowrap text-ink-2"
 									>{row.upcoming ? formatKc(row.upcoming) : '—'}</td
+								>
+								<td class="px-4 py-2 text-right whitespace-nowrap text-ink-2"
+									>{al.bySeason[row.seasonYear] ? formatKc(al.bySeason[row.seasonYear]) : '—'}</td
 								>
 								<td class="hidden px-4 py-2 text-right text-ink-2 sm:table-cell"
 									>{row.unrated || '—'}</td

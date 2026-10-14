@@ -1,6 +1,22 @@
 # Production stack for the VPS (ADR 0007). It lives in the deploy directory next to a `.env`
 # (template: deploy/.env.example); CI uploads this file and runs deploy.sh on every push to master.
+# Logs of the app services go to Graylog over GELF (ADR 0009); `docker compose logs` keeps
+# working thanks to Docker's dual logging.
 name: cbf-ref
+
+# GELF to the Graylog input published on the host's loopback (the daemon sends, not a container)
+x-gelf: &gelf
+  driver: gelf
+  options:
+    gelf-address: udp://127.0.0.1:${GELF_PORT:-12201}
+    tag: '{{.Name}}'
+
+# the logging stack itself logs locally (it cannot ship logs to itself before it is up)
+x-local-logging: &local-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '5'
 
 x-app: &app
   image: ghcr.io/sberan1/cbf-ref-interface:${IMAGE_TAG:-latest}
@@ -10,11 +26,7 @@ x-app: &app
   environment:
     DATABASE_URL: postgres://cbf:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@cbf-ref-db:5432/cbf
     AMQP_URL: amqp://cbf:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}@cbf-ref-rabbitmq:5672
-  logging: &logging
-    driver: json-file
-    options:
-      max-size: 10m
-      max-file: '5'
+  logging: *gelf
 
 # the sync processes need the queue as well
 x-after-migrations: &after-migrations
@@ -48,7 +60,7 @@ services:
       retries: 10
       start_period: 30s
       start_interval: 2s
-    logging: *logging
+    logging: *gelf
 
   rabbitmq:
     image: rabbitmq:4-management
@@ -73,7 +85,7 @@ services:
       retries: 10
       start_period: 60s
       start_interval: 5s
-    logging: *logging
+    logging: *gelf
 
   # one-shot: applies drizzle/ migrations before the new app/worker start (idempotent)
   migrate:
@@ -125,6 +137,111 @@ services:
     command: ['node', 'dist/cbf.js', 'scheduler']
     depends_on: *after-migrations
 
+  # --- logging (ADR 0009) ---------------------------------------------------------------------
+
+  mongodb:
+    image: mongo:7.0
+    restart: unless-stopped
+    networks:
+      default:
+        aliases: [cbf-ref-mongodb]
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', 'db.adminCommand("ping").ok']
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    logging: *local-logging
+
+  opensearch:
+    image: opensearchproject/opensearch:2.19.1
+    restart: unless-stopped
+    networks:
+      default:
+        aliases: [cbf-ref-opensearch]
+    environment:
+      OPENSEARCH_JAVA_OPTS: -Xms${OPENSEARCH_HEAP:-1g} -Xmx${OPENSEARCH_HEAP:-1g}
+      discovery.type: single-node
+      action.auto_create_index: 'false'
+      # single node on a private network: no TLS / auth plugin (sets plugins.security.disabled)
+      DISABLE_INSTALL_DEMO_CONFIG: 'true'
+      DISABLE_SECURITY_PLUGIN: 'true'
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - opensearchdata:/usr/share/opensearch/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'curl -fsS http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s'
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    logging: *local-logging
+
+  graylog:
+    image: graylog/graylog:6.1
+    restart: unless-stopped
+    # the root password is kept in plain text in .env; Graylog wants its SHA-256
+    entrypoint:
+      - /usr/bin/tini
+      - --
+      - sh
+      - -c
+      - GRAYLOG_ROOT_PASSWORD_SHA2=$$(printf %s "$$GRAYLOG_ROOT_PASSWORD" | sha256sum | cut -d' ' -f1) exec /docker-entrypoint.sh
+    environment:
+      GRAYLOG_ROOT_PASSWORD: ${GRAYLOG_ROOT_PASSWORD:-}
+      GRAYLOG_PASSWORD_SECRET: ${GRAYLOG_PASSWORD_SECRET:-}
+      GRAYLOG_NODE_ID_FILE: /usr/share/graylog/data/config/node-id
+      GRAYLOG_HTTP_BIND_ADDRESS: 0.0.0.0:9000
+      GRAYLOG_HTTP_EXTERNAL_URI: ${GRAYLOG_EXTERNAL_URI:-http://127.0.0.1:9000/}
+      GRAYLOG_ELASTICSEARCH_HOSTS: http://cbf-ref-opensearch:9200
+      GRAYLOG_MONGODB_URI: mongodb://cbf-ref-mongodb:27017/graylog
+      GRAYLOG_ROOT_TIMEZONE: Europe/Prague
+      GRAYLOG_MESSAGE_JOURNAL_MAX_SIZE: 2gb
+    ports:
+      # GELF from the Docker daemon of this host
+      - 127.0.0.1:${GELF_PORT:-12201}:12201/udp
+      # web UI also through an SSH tunnel: ssh -L 9000:127.0.0.1:9000 <vps>
+      - 127.0.0.1:${GRAYLOG_UI_PORT:-9000}:9000
+    networks:
+      default:
+      # the reverse proxy reaches the web UI as cbf-ref-graylog:9000
+      proxy:
+        aliases: [cbf-ref-graylog]
+    volumes:
+      - graylogdata:/usr/share/graylog/data
+    healthcheck:
+      test: ['CMD-SHELL', '/health_check.sh']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 180s
+    # started, not healthy: Graylog retries its stores itself, and a slow or broken logging
+    # stack must never block a deploy of the app
+    depends_on:
+      mongodb:
+        condition: service_started
+      opensearch:
+        condition: service_started
+    logging: *local-logging
+
+  # one-shot: GELF input + JSON extractor in Graylog (idempotent)
+  graylog-setup:
+    <<: *app
+    restart: 'no'
+    command: ['node', 'dist/graylog-setup.js']
+    # waits for the Graylog API itself (up to 10 minutes)
+    depends_on:
+      graylog:
+        condition: service_started
+    logging: *local-logging
+
 networks:
   # the reverse proxy's network (it belongs to the proxy's own stack); deploy.sh creates it if missing
   proxy:
@@ -134,3 +251,6 @@ networks:
 volumes:
   pgdata:
   rabbitmqdata:
+  mongodata:
+  opensearchdata:
+  graylogdata:

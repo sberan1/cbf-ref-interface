@@ -115,9 +115,78 @@ NPM posílá `Host` i `X-Forwarded-Proto` sám. Když access list s basic auth v
 `403 Forbidden` / `openresty`), přidej mu v záložce **Access** pravidlo `allow` → `all`.
 „Satisfy Any“ nech vypnuté, jinak by stránka šla otevřít i bez hesla.
 
-## 4. První spuštění
+## 4. Přihlášení přes Google a Mapy.com
 
-1. Dokonči kroky 1–3, potom mergni PR do `master`. Workflow image sestaví, publikuje a nasadí.
+Aplikace se přihlašuje Google účtem (ADR 0008). Vzdálenosti pro cestovné počítá přes Mapy.com
+(PDR 0003). Obojí se nastavuje v `/opt/cbf-ref/.env` a změna se projeví po
+`docker compose up -d app`.
+
+**Google OAuth** ([console.cloud.google.com](https://console.cloud.google.com)):
+
+1. Založ projekt (např. „cbf-ref“).
+2. _APIs & Services → OAuth consent screen_ (v novém rozhraní _Google Auth Platform_):
+   - typ **External**, název aplikace, support e-mail, autorizovaná doména (tvoje doména),
+   - scopes stačí `openid`, `email`, `profile`,
+   - aplikaci přepni na **In production**. S těmito základními scopes to nepotřebuje ověření
+     Googlem a přihlásit se může kdokoli s Google účtem.
+3. _Credentials → Create credentials → OAuth client ID_:
+   - typ **Web application**,
+   - _Authorized redirect URIs_: `https://<tvoje doména>/login/google/callback`.
+4. Do `.env` dej `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` a `ADMIN_EMAILS=<tvůj Google e-mail>`.
+
+Adresa pro návrat se skládá z hlaviček `Host` a `X-Forwarded-Proto`. Musí tedy přesně sedět
+s doménou, na které aplikace běží za proxy.
+
+**Mapy.com** ([developer.mapy.com](https://developer.mapy.com)): zaregistruj se, založ projekt a
+vytvoř API klíč. Do `.env` ho dej jako `MAPY_API_KEY`. Volá se jen ze serveru a trasy se
+ukládají do DB, takže na tarif zdarma to stačí. Bez klíče nefunguje vyhledávání adres a vzdálenosti
+se jen odhadují vzdušnou čarou (označené ≈).
+
+**Účty:** kdo se přihlásí poprvé, vybere si svůj záznam rozhodčího a čeká. Správci (e-maily z
+`ADMIN_EMAILS`) žádosti schvalují na stránce **Účty**, kde můžou spárovat i s jiným ID nebo
+spárování zrušit. Správce se při výběru svého záznamu schválí sám. Basic auth v NPM teď už není
+nutný, ale nevadí.
+
+Migrace `0002` smaže staré účty bez hesla a jejich session. Po nasazení se znovu přihlas přes
+Google.
+
+## 5. Logy v Graylogu
+
+Všechny služby aplikace (app, worker, scheduler, migrace, Postgres, RabbitMQ) posílají logy přes
+GELF do **Graylogu**, který běží ve stejném compose (MongoDB + OpenSearch + Graylog, ADR 0009).
+`docker compose logs` funguje dál. Při prvním startu služba `graylog-setup` sama založí vstup
+„GELF UDP (docker)“ a extraktor, který z JSON logů aplikace udělá pole s prefixem `app_`
+(`app_msg`, `app_level`, `app_path`, `app_status`, `app_ms`, `app_userId`, `app_err`…).
+
+Přidej do `/opt/cbf-ref/.env` (bez nich `deploy.sh` logovací stack přeskočí, aplikace se nasadí i tak; chyba logovacího stacku deploy neshodí):
+
+```sh
+cd /opt/cbf-ref
+echo "GRAYLOG_ROOT_PASSWORD=$(openssl rand -hex 16)" >> .env
+echo "GRAYLOG_PASSWORD_SECRET=$(openssl rand -hex 48)" >> .env
+echo "GRAYLOG_EXTERNAL_URI=https://logs.<tvoje doména>/" >> .env
+# OpenSearch chce víc memory map oblastí (doporučené, natrvalo):
+echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-opensearch.conf && sudo sysctl --system
+```
+
+- **Paměť:** celý logovací stack si vezme zhruba 2,5–3 GB RAM. OpenSearch heap nastavíš přes
+  `OPENSEARCH_HEAP` (výchozí `1g`).
+- **Web UI:** Graylog je v síti proxy jako `cbf-ref-graylog:9000`. V NPM přidej proxy host
+  (např. `logs.<doména>`) s Forward Hostname `cbf-ref-graylog`, port `9000`, scheme `http`. Přihlášení je `admin` a heslo z `GRAYLOG_ROOT_PASSWORD`. Bez proxy přes
+  SSH tunel: `ssh -L 9000:127.0.0.1:9000 deploy@<vps>`, pak `http://localhost:9000`.
+- **Hledání:**
+  - `app_msg:request AND app_status:>=500`: chyby webu.
+  - `app_msg:"unhandled error"`: výjimky se stackem.
+  - `container_name:cbf-ref-worker-1 AND app_level:(warn OR error)`: problémy stahování.
+  - `app_msg:"account review"`: rozhodnutí o účtech.
+- **Retence:** výchozí index set Graylogu (rotace a mazání starých indexů). Nastavíš ji v
+  _System → Indices_. Data jsou ve volumes `opensearchdata`, `mongodata` a `graylogdata`.
+- Když logovací stack neběží, aplikace funguje dál: Docker posílá GELF přes UDP a deploy na
+  zdraví Graylogu nečeká.
+
+## 6. První spuštění
+
+1. Dokonči kroky 1–5, potom mergni PR do `master`. Workflow image sestaví, publikuje a nasadí.
    Průběh uvidíš v Actions, na VPS přes `docker compose ps` v `/opt/cbf-ref`.
 2. Ověř stav:
 
@@ -146,13 +215,16 @@ NPM posílá `Host` i `X-Forwarded-Proto` sám. Když access list s basic auth v
    ssh -L 15672:127.0.0.1:15672 deploy@<vps>             # pak http://localhost:15672 (cbf / heslo z .env)
    ```
 
-5. Přihlášení: otevři svou doménu, projdi basic auth, vyhledej se a klikni „To jsem já“.
+5. Přihlášení: otevři svou doménu, přihlas se přes Google, vyhledej se a klikni „To jsem já“.
+   Jako správce se schválíš sám. V **Profilu** nastav bydliště a v **Cestách a náhradách**
+   nech spočítat sezónu.
+
    Rozhodčí jsou jen v detailech zápasů. Najdeš se tedy až po stažení aktuální sezóny (první
    hodiny), starší zápasy přibývají s bootstrapem.
 
 ## Provoz
 
-- **Logy:** `docker compose logs -f app worker scheduler`. Rotují se (5 × 10 MB na kontejner).
+- **Logy:** v Graylogu (krok 5), nebo `docker compose logs -f app worker scheduler`.
 - **Ruční příkazy syncu:** `docker compose exec worker node dist/cbf.js help`, kompletní přehled
   je v hlavním README.
 - **Rollback:** `IMAGE_TAG=<commit sha> docker compose up -d` (image posledních 14 dní zůstávají

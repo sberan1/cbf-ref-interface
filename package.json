@@ -22,7 +22,7 @@
 		"db:studio": "drizzle-kit studio",
 		"cbf": "tsx scripts/cbf.ts",
 		"cbf:worker": "tsx scripts/cbf.ts worker",
-		"build:worker": "esbuild scripts/cbf.ts scripts/migrate.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outdir=dist --log-level=warning",
+		"build:worker": "esbuild scripts/cbf.ts scripts/migrate.ts scripts/graylog-setup.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outdir=dist --log-level=warning",
 		"db:migrate:prod": "node dist/migrate.js"
 	},
 	"devDependencies": {
@@ -59,6 +59,7 @@
 	},
 	"dependencies": {
 		"amqplib": "^2.2.0",
+		"arctic": "^3.7.0",
 		"drizzle-orm": "^0.45.2",
 		"fast-xml-parser": "^5.11.2",
 		"postgres": "^3.4.9",
