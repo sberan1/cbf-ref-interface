@@ -209,13 +209,14 @@ services:
       GRAYLOG_MONGODB_URI: mongodb://cbf-ref-mongodb:27017/graylog
       GRAYLOG_ROOT_TIMEZONE: Europe/Prague
       GRAYLOG_SERVER_JAVA_OPTS: -Xms${GRAYLOG_HEAP:-512m} -Xmx${GRAYLOG_HEAP:-512m}
-      # disk (ADR 0009): messages waiting for OpenSearch, and the log indices. The index settings
-      # seed the default index set on the first start; later changes go through System → Indices.
-      GRAYLOG_MESSAGE_JOURNAL_MAX_SIZE: ${GRAYLOG_JOURNAL_MAX_SIZE:-512mb}
+      # disk (ADR 0009): messages waiting for OpenSearch, and the log indices (1 GiB each, the 20
+      # newest kept: logs stay under ~21 GB, ~22 GB with the journal). These seed the index sets on
+      # the first start; graylog-setup enforces the same limits on the default index set later.
+      GRAYLOG_MESSAGE_JOURNAL_MAX_SIZE: ${GRAYLOG_JOURNAL_MAX_SIZE:-1gb}
       GRAYLOG_ROTATION_STRATEGY: size
-      GRAYLOG_ELASTICSEARCH_MAX_SIZE_PER_INDEX: ${GRAYLOG_INDEX_MAX_BYTES:-536870912}
+      GRAYLOG_ELASTICSEARCH_MAX_SIZE_PER_INDEX: ${GRAYLOG_INDEX_MAX_BYTES:-1073741824}
       GRAYLOG_RETENTION_STRATEGY: delete
-      GRAYLOG_ELASTICSEARCH_MAX_NUMBER_OF_INDICES: ${GRAYLOG_MAX_INDICES:-4}
+      GRAYLOG_ELASTICSEARCH_MAX_NUMBER_OF_INDICES: ${GRAYLOG_MAX_INDICES:-20}
     mem_limit: ${GRAYLOG_MEM_LIMIT:-1280m}
     ports:
       # GELF from the Docker daemon of this host
@@ -249,6 +250,9 @@ services:
     <<: *app
     restart: 'no'
     command: ['node', 'dist/graylog-setup.js']
+    environment:
+      GRAYLOG_INDEX_MAX_BYTES: ${GRAYLOG_INDEX_MAX_BYTES:-1073741824}
+      GRAYLOG_MAX_INDICES: ${GRAYLOG_MAX_INDICES:-20}
     # waits for the Graylog API itself (up to 10 minutes)
     depends_on:
       graylog:
