@@ -46,6 +46,13 @@ export async function handleNormalizeTask(
 			data = normalizer.parse(raw.body, task);
 		} catch (err) {
 			await recordNormalizeError(deps.db, key, `parse: ${errorMessage(err)}`);
+			deps.log.error('normalize failed', {
+				key,
+				endpoint: task.endpoint,
+				stage: 'parse',
+				rawPayloadId: raw.id,
+				err: errorMessage(err)
+			});
 			throw new PermanentError(`${key}: ${errorMessage(err)}`, { cause: err });
 		}
 	}
@@ -67,8 +74,16 @@ export async function handleNormalizeTask(
 				await markNormalized(tx, key, raw.id, normalizer.version, nextDueAt);
 			});
 		} catch (err) {
-			if (!isRetryable(err))
+			if (!isRetryable(err)) {
 				await recordNormalizeError(deps.db, key, `write: ${errorMessage(err)}`);
+				deps.log.error('normalize failed', {
+					key,
+					endpoint: task.endpoint,
+					stage: 'write',
+					rawPayloadId: raw.id,
+					err: errorMessage(err)
+				});
+			}
 			throw err;
 		}
 	} else if (refreshDue) {

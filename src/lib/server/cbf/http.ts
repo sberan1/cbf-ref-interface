@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { CbfConfig } from './config';
 import { buildUrl, type EndpointDef, type Params } from './endpoints';
+import { log } from './log';
 import type { RateLimiter } from './rate-limiter';
 
 export interface FetchResult {
@@ -33,6 +34,21 @@ export class CbfHttpError extends Error {
 		return this.kind !== 'client';
 	}
 }
+
+/**
+ * ČBF answers some outages with HTTP 200 and an error text instead of data ("Nepovedlo se
+ * pripojit k databázi.<br>No …"). Stored, it would count as the resource's fresh content and fail
+ * normalization for good. Returns the start of such a body: neither JSON, XML nor empty.
+ */
+export function errorPageText(body: string): string | null {
+	const text = body.trim();
+	if (/^<!doctype html|^<html/i.test(text)) return text.slice(0, 80);
+	if (text === '' || /^[[{<]/.test(text) || text === 'null' || text === 'false') return null;
+	return text.slice(0, 80);
+}
+
+/** ČBF's database is down: its whole API is, so all traffic pauses like when it blocks us. */
+const isOutage = (text: string) => /datab[aá]z|database/i.test(text);
 
 /** Statuses that look like ČBF throttling or blocking us; all traffic pauses (ADR 0005). */
 const BLOCK_STATUSES = new Set([403, 429, 503]);
@@ -87,6 +103,11 @@ export class CbfHttpClient {
 
 		if (BLOCK_STATUSES.has(status)) {
 			this.limiter.pause(this.config.blockPauseMs);
+			log.warn('cbf blocked us, pausing all requests', {
+				status,
+				pauseMs: this.config.blockPauseMs,
+				url
+			});
 			throw new CbfHttpError('blocked', `HTTP ${status}`, url, startedAt, elapsed(), status);
 		}
 		if (status >= 500) {
@@ -97,6 +118,26 @@ export class CbfHttpClient {
 		}
 
 		const body = decodeBody(bytes, contentType);
+		const errorPage = status === 404 ? null : errorPageText(body);
+		if (errorPage !== null) {
+			const outage = isOutage(errorPage);
+			if (outage) this.limiter.pause(this.config.blockPauseMs);
+			log.warn('cbf error page instead of data', {
+				status,
+				outage,
+				pauseMs: outage ? this.config.blockPauseMs : 0,
+				text: errorPage,
+				url
+			});
+			throw new CbfHttpError(
+				'server',
+				`error page instead of data: ${errorPage}`,
+				url,
+				startedAt,
+				elapsed(),
+				status
+			);
+		}
 		return {
 			url,
 			status,

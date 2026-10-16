@@ -59,6 +59,7 @@ npm run cbf -- scheduler                # trvale běžící plánovač daily + w
 npm run cbf -- fetch v2.game game=273093 --force
 npm run cbf -- renormalize --endpoint v2.games --force   # přepočet z raw dat, bez HTTP
 npm run cbf -- stats                    # hloubka front, počty řádků, requesty za poslední hodinu
+npm run cbf -- refetch-failed           # znovu stáhne odpovědi, které nešly zpracovat (chybová stránka ČBF)
 npm run cbf -- requeue-dead --queue fetch
 ```
 
