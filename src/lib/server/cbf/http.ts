@@ -34,6 +34,21 @@ export class CbfHttpError extends Error {
 	}
 }
 
+/**
+ * ČBF answers some outages with HTTP 200 and an error text instead of data ("Nepovedlo se
+ * pripojit k databázi.<br>No …"). Stored, it would count as the resource's fresh content and fail
+ * normalization for good. Returns the start of such a body: neither JSON, XML nor empty.
+ */
+export function errorPageText(body: string): string | null {
+	const text = body.trim();
+	if (/^<!doctype html|^<html/i.test(text)) return text.slice(0, 80);
+	if (text === '' || /^[[{<]/.test(text) || text === 'null' || text === 'false') return null;
+	return text.slice(0, 80);
+}
+
+/** ČBF's database is down: its whole API is, so all traffic pauses like when it blocks us. */
+const isOutage = (text: string) => /datab[aá]z|database/i.test(text);
+
 /** Statuses that look like ČBF throttling or blocking us; all traffic pauses (ADR 0005). */
 const BLOCK_STATUSES = new Set([403, 429, 503]);
 
@@ -97,6 +112,18 @@ export class CbfHttpClient {
 		}
 
 		const body = decodeBody(bytes, contentType);
+		const errorPage = status === 404 ? null : errorPageText(body);
+		if (errorPage !== null) {
+			if (isOutage(errorPage)) this.limiter.pause(this.config.blockPauseMs);
+			throw new CbfHttpError(
+				'server',
+				`error page instead of data: ${errorPage}`,
+				url,
+				startedAt,
+				elapsed(),
+				status
+			);
+		}
 		return {
 			url,
 			status,

@@ -4,7 +4,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { and, count, eq, gte, isNotNull } from 'drizzle-orm';
+import { and, count, eq, gte, isNotNull, like } from 'drizzle-orm';
 import { createDb } from '../src/lib/server/db/client';
 import * as schema from '../src/lib/server/db/schema';
 import {
@@ -44,6 +44,8 @@ const HELP = `ČBF sync CLI
                                         enqueue one resource, e.g. fetch v2.game game=273093
   renormalize [--endpoint KEY] [--force]
                                         re-run normalization from stored raw payloads (no HTTP)
+  refetch-failed [--endpoint KEY]       re-download resources whose stored payload could not be
+                                        parsed (e.g. a ČBF error page), then normalize them again
   requeue-dead [--queue fetch|normalize] [--limit N]
   stats                                 queue depths and DB counts
   discover [--out DIR] [--years 2026,2012] [--probe-areas 1-20]
@@ -279,6 +281,43 @@ async function main() {
 				}
 			});
 			log.info('renormalize enqueued', { tasks: rows.length });
+			return;
+		}
+
+		case 'refetch-failed': {
+			const { values } = parseArgs({ args: rest, options: { endpoint: { type: 'string' } } });
+			if (values.endpoint && !isEndpointKey(values.endpoint)) {
+				throw new Error(`Unknown endpoint "${values.endpoint}"`);
+			}
+			const rows = await withDb(config, (db) =>
+				db
+					.select({
+						endpoint: schema.fetchState.endpoint,
+						params: schema.fetchState.params,
+						context: schema.fetchState.context
+					})
+					.from(schema.fetchState)
+					.where(
+						and(
+							like(schema.fetchState.lastNormalizeError, 'parse:%'),
+							values.endpoint ? eq(schema.fetchState.endpoint, values.endpoint) : undefined
+						)
+					)
+			);
+			await withBroker(config, async (b) => {
+				for (const row of rows) {
+					if (!isEndpointKey(row.endpoint)) continue;
+					await b.fetch({
+						endpoint: row.endpoint,
+						params: row.params,
+						reason: 'manual',
+						recurse: false,
+						force: true,
+						ctx: (row.context ?? {}) as TaskContext
+					});
+				}
+			});
+			log.info('refetch enqueued', { tasks: rows.length });
 			return;
 		}
 
