@@ -27,6 +27,23 @@ export interface FeeRow {
 	fee: GameFee;
 }
 
+/**
+ * Whether a delegation counts as played, still expected, or cancelled. Results often come in the
+ * evening or the next day, so a game without one stays expected for a day after the game day.
+ */
+export function gameStatus(
+	date: string | null,
+	hasResult: boolean,
+	today: string
+): 'played' | 'expected' | 'cancelled' {
+	if (date === null || date > today) return 'expected';
+	if (hasResult) return 'played';
+	const graceEnd = new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000)
+		.toISOString()
+		.slice(0, 10);
+	return today > graceEnd ? 'cancelled' : 'expected';
+}
+
 /** All delegations of the person with the fee of each (commissioners get `amount: null`). */
 export async function personFees(
 	db: DbOrTx,
@@ -63,9 +80,8 @@ export async function personFees(
 		.where(inArray(gameOfficial.officialId, officialIds));
 
 	return rows.map((r) => {
-		const past = r.date !== null && r.date <= today;
-		// a past game without a result was cancelled or never played: no fee
-		const played = past && r.hasResult;
+		const status = gameStatus(r.date, r.hasResult, today);
+		const played = status === 'played';
 		const fee = gameFee({
 			role: r.role,
 			date: r.date,
@@ -91,7 +107,7 @@ export async function personFees(
 			competitionName: r.competitionName,
 			played,
 			fee:
-				past && !played && fee.amount !== null
+				status === 'cancelled' && fee.amount !== null
 					? {
 							amount: null,
 							key: fee.key,
