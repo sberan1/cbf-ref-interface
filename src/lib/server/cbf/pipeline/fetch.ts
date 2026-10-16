@@ -79,6 +79,13 @@ export async function handleFetchTask(
 	} catch (err) {
 		if (!(err instanceof CbfHttpError)) throw err;
 		await recordFetchFailure(deps.db, { ...identity, error: err });
+		deps.log.warn('fetch failed', {
+			key,
+			endpoint: task.endpoint,
+			kind: err.kind,
+			status: err.status ?? null,
+			err: err.message
+		});
 		const message = `${key}: ${err.kind} ${err.message}`;
 		throw err.retryable
 			? new RetryableError(message, { cause: err })

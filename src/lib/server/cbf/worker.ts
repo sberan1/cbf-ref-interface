@@ -20,17 +20,28 @@ export interface WorkerRoles {
 async function settleFailure(
 	broker: Broker,
 	role: QueueRole,
-	task: { attempt: number } & Parameters<Broker['retry']>[1],
+	task: { attempt: number; endpoint: string; params: Record<string, string> } & Parameters<
+		Broker['retry']
+	>[1],
 	err: unknown,
 	maxAttempts: number
 ) {
 	const message = errorMessage(err);
 	const attempt = task.attempt + 1;
+	// endpoint / params / reason as separate fields, to filter in Graylog (app_endpoint, …)
+	const fields = {
+		role,
+		attempt,
+		endpoint: task.endpoint,
+		params: task.params,
+		reason: task.reason,
+		err: message
+	};
 	if (isRetryable(err) && attempt < maxAttempts) {
-		log.warn('task failed, will retry', { role, attempt, err: message });
+		log.warn('task failed, will retry', fields);
 		await broker.retry(role, { ...task, attempt }, message);
 	} else {
-		log.error('task failed permanently', { role, attempt, err: message });
+		log.error('task failed permanently', fields);
 		await broker.dead(role, { ...task, attempt }, message);
 	}
 }

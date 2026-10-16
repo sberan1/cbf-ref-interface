@@ -186,6 +186,12 @@ echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-opensearch.conf && su
   - `app_msg:request AND app_status:>=500`: chyby webu.
   - `app_msg:"unhandled error"`: výjimky se stackem.
   - `container_name:cbf-ref-worker-1 AND app_level:(warn OR error)`: problémy stahování.
+  - `app_msg:"fetch failed"`: neúspěšné requesty na ČBF (`app_key`, `app_kind`, `app_status`).
+  - `app_msg:"normalize failed"`: odpovědi, které nešly zpracovat (`app_stage` parse/write).
+  - `app_msg:"cbf error page instead of data"` a `app_msg:"cbf blocked us*"`: výpadky a
+    blokace ČBF, při kterých se stahování pozastaví.
+  - `app_msg:"task failed permanently"`: co skončilo v dead-letter frontě (`app_endpoint`,
+    `app_params`).
   - `app_msg:"account review"`: rozhodnutí o účtech.
 - **Retence:** výchozí index set Graylogu (rotace a mazání starých indexů). Nastavíš ji v
   _System → Indices_. Data jsou ve volumes `opensearchdata`, `mongodata` a `graylogdata`.

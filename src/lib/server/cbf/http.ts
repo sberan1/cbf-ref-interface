@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { CbfConfig } from './config';
 import { buildUrl, type EndpointDef, type Params } from './endpoints';
+import { log } from './log';
 import type { RateLimiter } from './rate-limiter';
 
 export interface FetchResult {
@@ -102,6 +103,11 @@ export class CbfHttpClient {
 
 		if (BLOCK_STATUSES.has(status)) {
 			this.limiter.pause(this.config.blockPauseMs);
+			log.warn('cbf blocked us, pausing all requests', {
+				status,
+				pauseMs: this.config.blockPauseMs,
+				url
+			});
 			throw new CbfHttpError('blocked', `HTTP ${status}`, url, startedAt, elapsed(), status);
 		}
 		if (status >= 500) {
@@ -114,7 +120,15 @@ export class CbfHttpClient {
 		const body = decodeBody(bytes, contentType);
 		const errorPage = status === 404 ? null : errorPageText(body);
 		if (errorPage !== null) {
-			if (isOutage(errorPage)) this.limiter.pause(this.config.blockPauseMs);
+			const outage = isOutage(errorPage);
+			if (outage) this.limiter.pause(this.config.blockPauseMs);
+			log.warn('cbf error page instead of data', {
+				status,
+				outage,
+				pauseMs: outage ? this.config.blockPauseMs : 0,
+				text: errorPage,
+				url
+			});
 			throw new CbfHttpError(
 				'server',
 				`error page instead of data: ${errorPage}`,
