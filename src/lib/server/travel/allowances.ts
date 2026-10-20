@@ -62,6 +62,8 @@ export interface DayAllowance {
 	travel: number;
 	minutes: { driving: number; games: number };
 	meal: number;
+	/** why there is no meal allowance (all games in the home municipality) */
+	mealNote: string | null;
 	weekday: number;
 	weekdayNote: string | null;
 	total: number;
@@ -82,14 +84,23 @@ export function isTopCompetition(game: CompetitionInfo): boolean {
 	return classifyCompetition(game).key === 'cbf.m.liga1';
 }
 
-function sameMunicipality(a: string | null | undefined, b: string | null | undefined): boolean {
+/**
+ * Same municipality, ignoring city districts: "Praha 8 - Bohnice" and "Praha 9" are both Praha,
+ * "Frýdek-Místek" stays one name.
+ */
+export function sameMunicipality(
+	a: string | null | undefined,
+	b: string | null | undefined
+): boolean {
 	if (!a || !b) return false;
 	const norm = (s: string) =>
 		foldText(s)
+			.trim()
 			.replace(/\s*-\s*/g, '-')
-			.replace(/\s+\d+$/, '')
-			.trim();
-	return norm(a) === norm(b);
+			.replace(/\s+\d+(?=-|$)/, '');
+	const x = norm(a);
+	const y = norm(b);
+	return x === y || x.startsWith(`${y}-`) || y.startsWith(`${x}-`);
 }
 
 export function computeDayAllowance(input: {
@@ -132,7 +143,13 @@ export function computeDayAllowance(input: {
 	const gameMinutes = gameCount * MINUTES_PER_GAME;
 	const meals = mealFor(date);
 	if (meals && meals.provenance !== 'document') ratesAssumed = true;
-	const meal = meals ? mealAmount(meals, (drivingMinutes + gameMinutes) / 60) : 0;
+	// § 152 ZP: a trip within the municipality of residence is no business trip, so no meal allowance
+	const atHome =
+		!!input.homeMunicipality &&
+		games.length > 0 &&
+		games.every((g) => sameMunicipality(g.venueMunicipality, input.homeMunicipality));
+	const mealNote = atHome ? 'zápas v obci bydliště' : null;
+	const meal = meals && !atHome ? mealAmount(meals, (drivingMinutes + gameMinutes) / 60) : 0;
 
 	let weekday = 0;
 	let weekdayNote: string | null = null;
@@ -165,6 +182,7 @@ export function computeDayAllowance(input: {
 		travel,
 		minutes: { driving: drivingMinutes, games: gameMinutes },
 		meal,
+		mealNote,
 		weekday,
 		weekdayNote,
 		total: travel + meal + weekday,

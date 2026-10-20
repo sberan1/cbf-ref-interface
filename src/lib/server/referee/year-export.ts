@@ -119,7 +119,11 @@ export function yearCsv(
 				a.weekday,
 				a.total,
 				a.estimated ? 'ano' : null,
-				[km ? `${String(Math.round(km * 10) / 10).replace('.', ',')} km` : null, ...a.notes]
+				[
+					km ? `${String(Math.round(km * 10) / 10).replace('.', ',')} km` : null,
+					a.mealNote ? `stravné: ${a.mealNote}` : null,
+					...a.notes
+				]
 					.filter(Boolean)
 					.join('; ') || null
 			]

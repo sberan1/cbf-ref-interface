@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	computeDayAllowance,
+	sameMunicipality,
 	passengersByLeg,
 	type DayGame,
 	type TripLeg,
@@ -160,6 +161,40 @@ describe('computeDayAllowance', () => {
 			games: [game()]
 		});
 		expect(prague.weekday).toBe(0);
+	});
+
+	it('treats city districts as the home municipality', () => {
+		expect(sameMunicipality('Praha 8 - Bohnice', 'Praha')).toBe(true);
+		expect(sameMunicipality('Praha 9', 'Praha')).toBe(true);
+		expect(sameMunicipality('Praha-Kunratice', 'Praha')).toBe(true);
+		expect(sameMunicipality('Frýdek - Místek', 'Frýdek-Místek')).toBe(true);
+		expect(sameMunicipality('Ústí nad Labem', 'Ústí nad Orlicí')).toBe(false);
+		expect(sameMunicipality('Kladno', 'Praha')).toBe(false);
+		expect(sameMunicipality(null, 'Praha')).toBe(false);
+	});
+
+	it('gives no meal allowance when all games are in the home municipality', () => {
+		const legs = [km(20, 0, 60), km(20, 0, 60)];
+		const games = [game({ gameId: 1 }), game({ gameId: 2 })]; // 2 h + 7 h
+		const home = computeDayAllowance({
+			date: '2026-10-17',
+			mode: 'car',
+			legs,
+			games,
+			homeMunicipality: 'Praha'
+		});
+		expect(home.meal).toBe(0);
+		expect(home.mealNote).toMatch(/bydliště/);
+		expect(home.mileage).toBeGreaterThan(0);
+		const away = computeDayAllowance({
+			date: '2026-10-17',
+			mode: 'car',
+			legs,
+			games: [game({ gameId: 1 }), game({ gameId: 2, venueMunicipality: 'Kladno' })],
+			homeMunicipality: 'Praha'
+		});
+		expect(away.meal).toBe(155);
+		expect(away.mealNote).toBeNull();
 	});
 
 	it('pays no mileage to a passenger but counts the trip time', () => {

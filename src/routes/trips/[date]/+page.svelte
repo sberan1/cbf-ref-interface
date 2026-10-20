@@ -368,6 +368,7 @@
 										a.minutes.games
 									)} = {formatDuration(a.minutes.driving + a.minutes.games)}</span
 								>
+								{#if a.mealNote}<span class="block text-xs text-muted">{a.mealNote}</span>{/if}
 							</dt>
 							<dd class="whitespace-nowrap">{formatKc(a.meal)}</dd>
 						</div>
