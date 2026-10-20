@@ -1,7 +1,7 @@
 /**
  * Application layer: accounts signed in with Google and paired with a ČBF official after an
- * admin's approval (ADR 0008), their sessions (ADR 0006), and the travel data behind the
- * allowances (PDR 0003).
+ * admin's approval (ADR 0008), their sessions (ADR 0006), the travel data behind the
+ * allowances (PDR 0003) and games entered by hand (PDR 0004).
  */
 import {
 	boolean,
@@ -136,6 +136,34 @@ export const appTrip = appSchema.table(
 		updatedAt: tstz('updated_at').notNull().defaultNow()
 	},
 	(t) => [unique('trip_user_date_uq').on(t.userId, t.date)]
+);
+
+export const ownGameRoles = ['referee', 'commissioner', 'table', 'other'] as const;
+export type OwnGameRole = (typeof ownGameRoles)[number];
+
+/**
+ * A game the user refereed outside the ČBF system (friendly, local tournament), entered by hand
+ * for their own records (PDR 0004). One row can stand for several games of a tournament day;
+ * `fee` is what the user was paid in total, Kč (null = unpaid or unknown).
+ */
+export const appOwnGame = appSchema.table(
+	'own_game',
+	{
+		id: serial('id').primaryKey(),
+		userId: integer('user_id')
+			.notNull()
+			.references(() => appUser.id, { onDelete: 'cascade' }),
+		date: date('date', { mode: 'string' }).notNull(),
+		title: text('title').notNull(),
+		role: text('role').$type<OwnGameRole>().notNull(),
+		games: integer('games').notNull().default(1),
+		fee: integer('fee'),
+		place: text('place'),
+		note: text('note'),
+		createdAt: tstz('created_at').notNull().defaultNow(),
+		updatedAt: tstz('updated_at').notNull().defaultNow()
+	},
+	(t) => [index('own_game_user_date_idx').on(t.userId, t.date)]
 );
 
 /** Geocoding results (Mapy.com), shared by all users. */
