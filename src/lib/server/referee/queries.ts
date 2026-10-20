@@ -21,7 +21,16 @@ import {
 	type SQL
 } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client';
-import { competition, game, gameOfficial, official, season, venue } from '../db/schema';
+import {
+	area,
+	category,
+	competition,
+	game,
+	gameOfficial,
+	official,
+	season,
+	venue
+} from '../db/schema';
 import {
 	bucketKeyBefore,
 	currentBucketKey,
@@ -235,7 +244,7 @@ export interface GameRow {
 	colleagues: string | null;
 }
 
-const roleNames: Record<string, string> = {
+export const roleNames: Record<string, string> = {
 	referee1: '1. rozhodčí',
 	referee2: '2. rozhodčí',
 	referee3: '3. rozhodčí',
@@ -292,9 +301,15 @@ export async function personGames(
 	}));
 }
 
+/** Age / gender category of a competition (U15 žákyně, muži, …), from the catalogue or the payload. */
+const categoryName = sql<
+	string | null
+>`coalesce(${category.name}, ${competition.extra}->>'catname', ${competition.extraV1}->'cat'->>'name')`;
+
 export interface CompetitionRow {
 	competitionId: number | null;
 	name: string | null;
+	category: string | null;
 	seasonYear: number | null;
 	referee: number;
 	commissioner: number;
@@ -311,6 +326,7 @@ export async function competitionBreakdown(
 		.select({
 			competitionId: game.competitionId,
 			name: competition.name,
+			category: sql<string | null>`min(${categoryName})`,
 			seasonYear: competition.seasonYear,
 			referee:
 				sql<number>`count(distinct ${gameOfficial.gameId}) filter (where not (${isCommissioner}))`.mapWith(
@@ -324,6 +340,7 @@ export async function competitionBreakdown(
 		.from(gameOfficial)
 		.innerJoin(game, eq(game.id, gameOfficial.gameId))
 		.leftJoin(competition, eq(competition.id, game.competitionId))
+		.leftJoin(category, eq(category.id, competition.categoryId))
 		.where(inArray(gameOfficial.officialId, officialIds))
 		.groupBy(game.competitionId, competition.name, competition.seasonYear)
 		.orderBy(desc(total), desc(competition.seasonYear))
@@ -337,16 +354,32 @@ export interface ColleagueRow {
 	games: number;
 }
 
-/** Officials who shared the most games with the person (any role). */
+export interface ColleagueFilter {
+	/** season start year; all seasons when undefined */
+	seasonYear?: number;
+	/** competition area (0 = celostátní); all areas when undefined */
+	areaId?: number;
+}
+
+/** Officials who shared the most games with the person (any role), optionally in one season / area. */
 export async function topColleagues(
 	db: DbOrTx,
 	officialIds: number[],
-	limit = 5
+	limit = 5,
+	filter: ColleagueFilter = {}
 ): Promise<ColleagueRow[]> {
 	const mine = db
 		.select({ gameId: gameOfficial.gameId })
 		.from(gameOfficial)
-		.where(inArray(gameOfficial.officialId, officialIds));
+		.innerJoin(game, eq(game.id, gameOfficial.gameId))
+		.leftJoin(competition, eq(competition.id, game.competitionId))
+		.where(
+			and(
+				inArray(gameOfficial.officialId, officialIds),
+				filter.seasonYear !== undefined ? eq(competition.seasonYear, filter.seasonYear) : undefined,
+				filter.areaId !== undefined ? eq(competition.areaId, filter.areaId) : undefined
+			)
+		);
 	return db
 		.select({
 			officialId: official.id,
@@ -362,6 +395,49 @@ export async function topColleagues(
 		.groupBy(official.id)
 		.orderBy(desc(countDistinct(gameOfficial.gameId)), asc(official.lastName))
 		.limit(limit);
+}
+
+export interface ColleagueFilterOptions {
+	seasons: number[];
+	areas: { id: number; name: string }[];
+}
+
+const areaLabel = (id: number, name: string | null) =>
+	name?.trim() || (id === 0 ? 'Celostátní soutěže' : `Oblast ${id}`);
+
+/**
+ * Seasons and areas the person has games in, for the colleague filters; the areas are those of the
+ * selected season (all seasons when none is selected).
+ */
+export async function colleagueFilterOptions(
+	db: DbOrTx,
+	officialIds: number[],
+	seasonYear?: number
+): Promise<ColleagueFilterOptions> {
+	const rows = await db
+		.selectDistinct({
+			seasonYear: competition.seasonYear,
+			areaId: competition.areaId,
+			areaName: area.name
+		})
+		.from(gameOfficial)
+		.innerJoin(game, eq(game.id, gameOfficial.gameId))
+		.innerJoin(competition, eq(competition.id, game.competitionId))
+		.leftJoin(area, eq(area.id, competition.areaId))
+		.where(inArray(gameOfficial.officialId, officialIds));
+	const seasons = [...new Set(rows.map((r) => r.seasonYear))]
+		.filter((y): y is number => y !== null)
+		.sort((a, b) => b - a);
+	const areas = new Map<number, string>();
+	for (const r of rows) {
+		if (r.areaId === null) continue;
+		if (seasonYear !== undefined && r.seasonYear !== seasonYear) continue;
+		areas.set(r.areaId, areaLabel(r.areaId, r.areaName));
+	}
+	return {
+		seasons,
+		areas: [...areas].map(([id, name]) => ({ id, name })).sort((a, b) => a.id - b.id)
+	};
 }
 
 /** Start year of the season ČBF marks as current, falling back to the August rollover. */

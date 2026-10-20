@@ -19,6 +19,31 @@
 	const metricParam = $derived(data.metric === 'earnings' ? '&m=kc' : '');
 	const e = $derived(data.earnings);
 	const al = $derived(data.allowances);
+	// calendar years with fees or allowances, newest first
+	const years = $derived(
+		[
+			...new Set([
+				...e.years.map((y) => y.year),
+				...Object.entries(al.byYear)
+					.filter(([, total]) => total > 0)
+					.map(([y]) => Number(y))
+			])
+		].sort((a, b) => b - a)
+	);
+	const yearOf = $derived(new Map(e.years.map((y) => [y.year, y])));
+	const cf = $derived(data.colleagueFilter);
+	// chart switches keep the colleague filter
+	const cfParam = $derived(
+		(cf.season !== null ? `&ks=${cf.season}` : '') + (cf.area !== null ? `&ko=${cf.area}` : '')
+	);
+
+	/** Category next to the competition name, unless the name already says it. */
+	const withCategory = (name: string | null, category: string | null) => {
+		const n = name ?? 'neznámá soutěž';
+		return category && !n.toLowerCase().includes(category.toLowerCase()) ? category : null;
+	};
+
+	const submit = (event: Event) => (event.currentTarget as HTMLSelectElement).form?.requestSubmit();
 
 	const s = $derived(data.summary);
 	const tiles = $derived([
@@ -76,7 +101,7 @@
 				<nav aria-label="Co graf ukazuje" class="flex rounded-md border border-line p-0.5 text-xs">
 					{#each metrics as m (m.key)}
 						<a
-							href={resolve(`/dashboard?g=${data.granularity}${m.param}`)}
+							href={resolve(`/dashboard?g=${data.granularity}${m.param}${cfParam}`)}
 							data-sveltekit-reset="false"
 							aria-current={data.metric === m.key ? 'page' : undefined}
 							class={[
@@ -91,7 +116,7 @@
 				<nav aria-label="Období grafu" class="flex rounded-md border border-line p-0.5 text-xs">
 					{#each views as v (v.key)}
 						<a
-							href={resolve(`/dashboard?g=${v.key}${metricParam}`)}
+							href={resolve(`/dashboard?g=${v.key}${metricParam}${cfParam}`)}
 							data-sveltekit-reset="false"
 							aria-current={data.granularity === v.key ? 'page' : undefined}
 							class={[
@@ -112,7 +137,9 @@
 		<div class="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-4 py-3">
 			<h2 class="text-sm font-semibold">Odměny za řízení</h2>
 			<p class="text-xs text-muted">
-				Odměna za utkání podle sazebníků, bez cestovného, stravného a příplatků za všední den.
+				Odměna za utkání podle sazebníků a <a class="hover:underline" href={resolve('/own-games')}
+					>vlastních zápasů</a
+				>, bez cestovného, stravného a příplatků za všední den.
 			</p>
 		</div>
 		<div class="grid grid-cols-2 gap-3 px-4 py-4 sm:grid-cols-4">
@@ -120,6 +147,13 @@
 				<p class="text-xs text-muted">Vyděláno celkem</p>
 				<p class="mt-1 text-2xl font-semibold tabular-nums">{formatKc(e.earned)}</p>
 				<p class="text-xs text-muted">{formatNumber(e.paidGames)} odřízených zápasů</p>
+				{#if e.own.games > 0}
+					<p class="text-xs text-muted">
+						z toho <a class="hover:underline" href={resolve('/own-games')}
+							>vlastní {formatKc(e.own.earned)} ({formatNumber(e.own.games)})</a
+						>
+					</p>
+				{/if}
 			</div>
 			<div>
 				<p class="text-xs text-muted">Sezóna {seasonName(data.currentSeasonYear)}</p>
@@ -203,6 +237,58 @@
 			</div>
 		{/if}
 
+		{#if years.length > 0}
+			<details class="border-t border-line px-4 py-3 text-sm">
+				<summary class="cursor-pointer text-xs text-muted hover:text-ink">
+					Podle kalendářních let (pro daňové přiznání)
+				</summary>
+				<div class="mt-2 overflow-x-auto">
+					<table class="w-full text-left text-sm">
+						<thead class="text-xs text-muted">
+							<tr>
+								<th class="py-2 pr-4 font-medium">Rok</th>
+								<th class="px-4 py-2 text-right font-medium">Zápasů</th>
+								<th class="px-4 py-2 text-right font-medium">Odměny</th>
+								<th class="hidden px-4 py-2 text-right font-medium sm:table-cell">z toho odhad</th>
+								<th class="px-4 py-2 text-right font-medium">Náhrady</th>
+								<th class="py-2 pl-4 text-right font-medium">Export</th>
+							</tr>
+						</thead>
+						<tbody class="tabular-nums">
+							{#each years as year (year)}
+								{@const y = yearOf.get(year)}
+								<tr class="border-t border-line">
+									<td class="py-2 pr-4">{year}</td>
+									<td class="px-4 py-2 text-right">{formatNumber(y?.paidGames ?? 0)}</td>
+									<td class="px-4 py-2 text-right font-medium whitespace-nowrap"
+										>{y?.earned ? formatKc(y.earned) : '—'}</td
+									>
+									<td class="hidden px-4 py-2 text-right whitespace-nowrap text-ink-2 sm:table-cell"
+										>{y?.estimated ? formatKc(y.estimated) : '—'}</td
+									>
+									<td class="px-4 py-2 text-right whitespace-nowrap text-ink-2"
+										>{al.byYear[year] ? formatKc(al.byYear[year]) : '—'}</td
+									>
+									<td class="py-2 pl-4 text-right whitespace-nowrap">
+										<a
+											class="text-accent hover:underline"
+											href={resolve('/dashboard/export/[year]', { year: String(year) })}
+											download>CSV</a
+										>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+				<p class="mt-2 text-xs text-ink-2">
+					Odřízené zápasy podle data zápasu, ne podle sezóny. Částky jsou spočítané ze sazebníků,
+					delegací a tvých cest, ne z výplat: před přiznáním je porovnej s tím, co ti skutečně
+					přišlo. CSV má po řádcích odměny za zápasy i náhrady za jednotlivé dny.
+				</p>
+			</details>
+		{/if}
+
 		{#if e.unrated.length > 0}
 			<details class="border-t border-line px-4 py-3 text-sm">
 				<summary class="cursor-pointer text-xs text-muted hover:text-ink">
@@ -251,7 +337,12 @@
 					<tbody class="tabular-nums">
 						{#each data.competitions as c (`${c.competitionId}:${c.seasonYear}`)}
 							<tr class="border-t border-line">
-								<td class="px-4 py-2">{c.name ?? 'neznámá soutěž'}</td>
+								<td class="px-4 py-2">
+									{c.name ?? 'neznámá soutěž'}
+									{#if withCategory(c.name, c.category)}
+										<span class="block text-xs text-ink-2">{withCategory(c.name, c.category)}</span>
+									{/if}
+								</td>
 								<td class="px-4 py-2 text-ink-2">{seasonName(c.seasonYear)}</td>
 								<td class="px-4 py-2 text-right">{c.referee}</td>
 								<td class="px-4 py-2 text-right">{c.commissioner}</td>
@@ -263,7 +354,43 @@
 		</section>
 
 		<section class="rounded-lg border border-line bg-surface">
-			<h2 class="border-b border-line px-4 py-3 text-sm font-semibold">Nejčastější kolegové</h2>
+			<div class="border-b border-line px-4 py-3">
+				<h2 class="text-sm font-semibold">Nejčastější kolegové</h2>
+				<form method="GET" class="mt-2 grid gap-2" data-sveltekit-noscroll data-sveltekit-keepfocus>
+					<input type="hidden" name="g" value={data.granularity} />
+					{#if data.metric === 'earnings'}<input type="hidden" name="m" value="kc" />{/if}
+					<label class="grid gap-1 text-xs text-muted">
+						Sezóna
+						<select
+							name="ks"
+							class="rounded-md border-line bg-surface py-1 text-sm text-ink"
+							onchange={submit}
+						>
+							<option value="" selected={cf.season === null}>Celá historie</option>
+							{#each cf.seasons as y (y)}
+								<option value={y} selected={cf.season === y}>{seasonName(y)}</option>
+							{/each}
+						</select>
+					</label>
+					<label class="grid gap-1 text-xs text-muted">
+						Oblast
+						<select
+							name="ko"
+							class="rounded-md border-line bg-surface py-1 text-sm text-ink"
+							onchange={submit}
+						>
+							<option value="" selected={cf.area === null}>Všechny oblasti</option>
+							{#each cf.areas as a (a.id)}
+								<option value={a.id} selected={cf.area === a.id}>{a.name}</option>
+							{/each}
+						</select>
+					</label>
+					<noscript
+						><button class="rounded-md border border-line px-3 py-1 text-sm">Filtrovat</button
+						></noscript
+					>
+				</form>
+			</div>
 			{#if data.colleagues.length === 0}
 				<p class="px-4 py-6 text-sm text-muted">Zatím nikdo.</p>
 			{:else}

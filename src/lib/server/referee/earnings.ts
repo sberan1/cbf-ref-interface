@@ -15,6 +15,11 @@ import {
 	type Granularity,
 	type TimelineBucket
 } from '../../referee/timeline';
+import type { OwnGame } from './own-games';
+
+/** Season start year of a date: seasons start in July. */
+export const seasonOfDate = (date: string) =>
+	Number(date.slice(0, 4)) - (Number(date.slice(5, 7)) < 7 ? 1 : 0);
 
 export interface FeeRow {
 	gameId: number;
@@ -23,6 +28,9 @@ export interface FeeRow {
 	seasonYear: number | null;
 	competitionId: number | null;
 	competitionName: string | null;
+	categoryName: string | null;
+	homeTeam: string | null;
+	awayTeam: string | null;
 	played: boolean;
 	fee: GameFee;
 }
@@ -60,6 +68,8 @@ export async function personFees(
 			role: gameOfficial.role,
 			date: game.scheduledDate,
 			hasResult: sql<boolean>`${game.homeScore} is not null and ${game.awayScore} is not null`,
+			homeTeam: game.homeTeamName,
+			awayTeam: game.awayTeamName,
 			round: game.round,
 			seasonYear: competition.seasonYear,
 			competitionId: competition.id,
@@ -99,12 +109,13 @@ export async function personFees(
 			gameId: r.gameId,
 			role: r.role,
 			date: r.date,
-			// seasons start in July; derive one for games whose competition has none
-			seasonYear:
-				r.seasonYear ??
-				(r.date ? Number(r.date.slice(0, 4)) - (Number(r.date.slice(5, 7)) < 7 ? 1 : 0) : null),
+			// derive a season for games whose competition has none
+			seasonYear: r.seasonYear ?? (r.date ? seasonOfDate(r.date) : null),
 			competitionId: r.competitionId,
 			competitionName: r.competitionName,
+			categoryName: r.categoryName,
+			homeTeam: r.homeTeam,
+			awayTeam: r.awayTeam,
 			played,
 			fee:
 				status === 'cancelled' && fee.amount !== null
@@ -131,6 +142,14 @@ export interface SeasonEarnings {
 	unrated: number;
 }
 
+/** Fees of games played in a calendar year (for the tax return; seasons span two years). */
+export interface YearEarnings {
+	year: number;
+	paidGames: number;
+	earned: number;
+	estimated: number;
+}
+
 export interface UnratedGroup {
 	key: string;
 	competitionName: string | null;
@@ -147,13 +166,20 @@ export interface EarningsSummary {
 	paidGames: number;
 	unratedGames: number;
 	seasons: SeasonEarnings[];
+	years: YearEarnings[];
 	unrated: UnratedGroup[];
+	/** games entered by hand (PDR 0004), already part of the totals above */
+	own: { games: number; earned: number };
 }
 
 /** Rates we only assume (not from an overview nor reported by a referee), or a guessed mapping. */
 const isEstimate = (fee: GameFee) => fee.amount !== null && fee.provenance === 'assumed';
 
-export function summarizeEarnings(rows: FeeRow[], currentSeasonYear: number): EarningsSummary {
+export function summarizeEarnings(
+	rows: FeeRow[],
+	currentSeasonYear: number,
+	own: { games: OwnGame[]; today: string } = { games: [], today: '' }
+): EarningsSummary {
 	const seasons = new Map<number, SeasonEarnings>();
 	const unrated = new Map<string, UnratedGroup>();
 	const out: EarningsSummary = {
@@ -164,8 +190,11 @@ export function summarizeEarnings(rows: FeeRow[], currentSeasonYear: number): Ea
 		paidGames: 0,
 		unratedGames: 0,
 		seasons: [],
-		unrated: []
+		years: [],
+		unrated: [],
+		own: { games: 0, earned: 0 }
 	};
+	const years = new Map<number, YearEarnings>();
 
 	for (const r of rows) {
 		if (r.role === 'commissioner') continue;
@@ -204,13 +233,54 @@ export function summarizeEarnings(rows: FeeRow[], currentSeasonYear: number): Ea
 				season.estimated += estimate;
 				season.paidGames++;
 			}
+			if (r.date) {
+				const y = Number(r.date.slice(0, 4));
+				const entry = years.get(y) ?? { year: y, paidGames: 0, earned: 0, estimated: 0 };
+				entry.paidGames++;
+				entry.earned += amount;
+				entry.estimated += estimate;
+				years.set(y, entry);
+			}
 		} else {
 			out.upcoming += amount;
 			if (season) season.upcoming += amount;
 		}
 	}
 
+	// own games: the fee as paid (never an estimate), all of it per entry
+	for (const g of own.games) {
+		const amount = g.fee ?? 0;
+		const year = seasonOfDate(g.date);
+		const season = seasons.get(year) ?? {
+			seasonYear: year,
+			paidGames: 0,
+			earned: 0,
+			estimated: 0,
+			upcoming: 0,
+			unrated: 0
+		};
+		seasons.set(year, season);
+		if (g.date > own.today) {
+			out.upcoming += amount;
+			season.upcoming += amount;
+			continue;
+		}
+		out.earned += amount;
+		out.paidGames += g.games;
+		out.own.games += g.games;
+		out.own.earned += amount;
+		if (year === currentSeasonYear) out.currentSeason += amount;
+		season.earned += amount;
+		season.paidGames += g.games;
+		const y = Number(g.date.slice(0, 4));
+		const entry = years.get(y) ?? { year: y, paidGames: 0, earned: 0, estimated: 0 };
+		entry.paidGames += g.games;
+		entry.earned += amount;
+		years.set(y, entry);
+	}
+
 	out.seasons = [...seasons.values()].sort((a, b) => b.seasonYear - a.seasonYear);
+	out.years = [...years.values()].sort((a, b) => b.year - a.year);
 	out.unrated = [...unrated.values()]
 		.sort((a, b) => b.games - a.games || (b.seasonYear ?? 0) - (a.seasonYear ?? 0))
 		.slice(0, 12);
@@ -221,7 +291,8 @@ export function summarizeEarnings(rows: FeeRow[], currentSeasonYear: number): Ea
 export function earningsTimeline(
 	rows: FeeRow[],
 	granularity: Granularity,
-	opts: { now: Date; currentSeasonYear: number }
+	opts: { now: Date; currentSeasonYear: number },
+	own: { games: OwnGame[]; today: string } = { games: [], today: '' }
 ): TimelineBucket[] {
 	const span = { season: 0, month: 23, week: 25 }[granularity];
 	const from =
@@ -239,6 +310,15 @@ export function earningsTimeline(
 		// estimated = played games at assumed rates; upcoming ones are all in expected
 		if (!r.played) entry.expected += r.fee.amount;
 		else if (isEstimate(r.fee)) entry.estimated += r.fee.amount;
+		amounts.set(key, entry);
+	}
+	for (const g of own.games) {
+		if (!g.fee) continue;
+		const key = dateBucketKey(granularity, g.date, seasonOfDate(g.date));
+		if (from && key < from) continue;
+		const entry = amounts.get(key) ?? { amount: 0, estimated: 0, expected: 0 };
+		entry.amount += g.fee;
+		if (g.date > own.today) entry.expected += g.fee;
 		amounts.set(key, entry);
 	}
 
