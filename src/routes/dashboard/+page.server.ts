@@ -1,12 +1,12 @@
 import { requireApproved } from '#lib/server/auth/guards.ts';
 import { getDb } from '#lib/server/db/index.ts';
-import type { GameFee } from '#lib/server/fees/index.ts';
 import {
 	earningsTimeline,
 	feeIndex,
 	personFees,
 	summarizeEarnings
 } from '#lib/server/referee/earnings.ts';
+import { feeView } from '#lib/server/referee/fee-view.ts';
 import { listOwnGames } from '#lib/server/referee/own-games.ts';
 import {
 	colleagueFilterOptions,
@@ -17,6 +17,7 @@ import {
 	personOfficialIds,
 	pragueToday,
 	refereeSummary,
+	teamBreakdown,
 	topColleagues,
 	type GameRow
 } from '#lib/server/referee/queries.ts';
@@ -24,19 +25,6 @@ import { isGranularity } from '#lib/referee/timeline.ts';
 import { homeOf } from '#lib/server/travel/service.ts';
 import { personDays, totals } from '#lib/server/travel/summary.ts';
 import type { PageServerLoad } from './$types';
-
-/** What the game lists show about a fee: amount, or why there is none. */
-function feeView(fee: GameFee | undefined) {
-	if (!fee) return null;
-	if (fee.amount === null) return { amount: null, estimate: false, detail: fee.reason };
-	return {
-		amount: fee.amount,
-		estimate: fee.provenance === 'assumed',
-		detail: [fee.label, fee.singleReferee ? '1,5× jeden rozhodčí' : null, fee.note]
-			.filter(Boolean)
-			.join(' · ')
-	};
-}
 
 const intParam = (url: URL, name: string) => {
 	const v = url.searchParams.get(name);
@@ -59,18 +47,29 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const colleagueSeason = options.seasons.find((y) => y === intParam(url, 'ks'));
 	const colleagueArea = options.areas.find((a) => a.id === intParam(url, 'ko'))?.id;
 
-	const [summary, timeline, upcoming, recent, competitions, colleagues, fees, days, ownGames] =
-		await Promise.all([
-			refereeSummary(db, ids, { today, currentSeasonYear }),
-			metric === 'games' ? gamesTimeline(db, ids, granularity, { now, currentSeasonYear }) : null,
-			personGames(db, ids, { direction: 'next', today, limit: 8 }),
-			personGames(db, ids, { direction: 'previous', today, limit: 8 }),
-			competitionBreakdown(db, ids, 10),
-			topColleagues(db, ids, 10, { seasonYear: colleagueSeason, areaId: colleagueArea }),
-			personFees(db, ids, today),
-			personDays(db, user.id, ids, homeOf(user)),
-			listOwnGames(db, user.id)
-		]);
+	const [
+		summary,
+		timeline,
+		upcoming,
+		recent,
+		competitions,
+		colleagues,
+		fees,
+		days,
+		ownGames,
+		teams
+	] = await Promise.all([
+		refereeSummary(db, ids, { today, currentSeasonYear }),
+		metric === 'games' ? gamesTimeline(db, ids, granularity, { now, currentSeasonYear }) : null,
+		personGames(db, ids, { direction: 'next', today, limit: 8 }),
+		personGames(db, ids, { direction: 'previous', today, limit: 8 }),
+		competitionBreakdown(db, ids, 10),
+		topColleagues(db, ids, undefined, { seasonYear: colleagueSeason, areaId: colleagueArea }),
+		personFees(db, ids, today),
+		personDays(db, user.id, ids, homeOf(user)),
+		listOwnGames(db, user.id),
+		teamBreakdown(db, ids)
+	]);
 	const own = { games: ownGames, today };
 
 	const index = feeIndex(fees);
@@ -87,6 +86,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		recent: withFees(recent),
 		competitions,
 		colleagues,
+		teams,
 		colleagueFilter: { season: colleagueSeason ?? null, area: colleagueArea ?? null, ...options },
 		earnings: summarizeEarnings(fees, currentSeasonYear, own),
 		allowances: {

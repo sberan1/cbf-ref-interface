@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { gameStatus } from './earnings';
-import { foldText, pragueToday } from './queries';
+import { foldText, pragueToday, teamCondition } from './queries';
 
 describe('referee queries helpers', () => {
 	it('folds Czech diacritics for search', () => {
@@ -23,5 +23,17 @@ describe('gameStatus', () => {
 		expect(gameStatus('2026-10-31', false, '2026-11-02')).toBe('cancelled');
 		expect(gameStatus('2026-10-20', false, '2026-10-16')).toBe('expected');
 		expect(gameStatus(null, false, '2026-10-16')).toBe('expected');
+	});
+});
+
+describe('teamCondition', () => {
+	it('accepts lineage, team ID and name keys only', () => {
+		expect(teamCondition('g5000')).not.toBeNull();
+		expect(teamCondition('t42')).not.toBeNull();
+		expect(teamCondition('nSokol Žižkov')).not.toBeNull();
+		expect(teamCondition('gabc')).toBeNull();
+		expect(teamCondition('x1')).toBeNull();
+		expect(teamCondition('n')).toBeNull();
+		expect(teamCondition('')).toBeNull();
 	});
 });
