@@ -32,9 +32,13 @@
 	);
 	const yearOf = $derived(new Map(e.years.map((y) => [y.year, y])));
 	const cf = $derived(data.colleagueFilter);
-	// chart switches keep the colleague filter
+	const tf = $derived(data.teamFilter);
+	// chart switches keep the colleague and team filters
 	const cfParam = $derived(
-		(cf.season !== null ? `&ks=${cf.season}` : '') + (cf.area !== null ? `&ko=${cf.area}` : '')
+		(cf.season !== null ? `&ks=${cf.season}` : '') +
+			(cf.area !== null ? `&ko=${cf.area}` : '') +
+			(tf.season !== null ? `&ts=${tf.season}` : '') +
+			(tf.area !== null ? `&to=${tf.area}` : '')
 	);
 
 	/** Category next to the competition name, unless the name already says it. */
@@ -59,12 +63,18 @@
 	const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 	const matchingTeams = $derived(
 		teamQuery.trim()
-			? data.teams.filter((t) => fold(t.name).includes(fold(teamQuery.trim())))
+			? data.teams.filter((t) =>
+					fold(`${t.name} ${t.category ?? ''}`).includes(fold(teamQuery.trim()))
+				)
 			: data.teams
 	);
 	const teams = $derived(allTeams || teamQuery.trim() ? matchingTeams : matchingTeams.slice(0, 10));
-	const teamHref = (key: string, name: string) =>
-		resolve(`/games?tym=${encodeURIComponent(key)}&nazev=${encodeURIComponent(name)}`);
+	const teamHref = (t: { key: string; name: string; category: string | null }) =>
+		resolve(
+			`/games?tym=${encodeURIComponent(t.key)}&nazev=${encodeURIComponent(
+				t.category ? `${t.name} · ${t.category}` : t.name
+			)}${tf.season !== null ? `&ks=${tf.season}` : ''}${tf.area !== null ? `&ko=${tf.area}` : ''}`
+		);
 	const seasonsOf = (first: number | null, last: number | null) =>
 		first === null
 			? ''
@@ -386,6 +396,8 @@
 				<form method="GET" class="mt-2 grid gap-2" data-sveltekit-noscroll data-sveltekit-keepfocus>
 					<input type="hidden" name="g" value={data.granularity} />
 					{#if data.metric === 'earnings'}<input type="hidden" name="m" value="kc" />{/if}
+					{#if tf.season !== null}<input type="hidden" name="ts" value={tf.season} />{/if}
+					{#if tf.area !== null}<input type="hidden" name="to" value={tf.area} />{/if}
 					<label class="grid gap-1 text-xs text-muted">
 						Sezóna
 						<select
@@ -456,13 +468,58 @@
 				<input
 					type="search"
 					bind:value={teamQuery}
-					placeholder="Hledat tým…"
+					placeholder="Hledat tým nebo kategorii…"
 					class="w-full rounded-md border-line bg-surface py-1 text-sm text-ink placeholder:text-muted"
 				/>
 			</label>
+			<form
+				method="GET"
+				class="grid w-full gap-2 sm:grid-cols-2"
+				data-sveltekit-noscroll
+				data-sveltekit-keepfocus
+			>
+				<input type="hidden" name="g" value={data.granularity} />
+				{#if data.metric === 'earnings'}<input type="hidden" name="m" value="kc" />{/if}
+				{#if cf.season !== null}<input type="hidden" name="ks" value={cf.season} />{/if}
+				{#if cf.area !== null}<input type="hidden" name="ko" value={cf.area} />{/if}
+				<label class="grid gap-1 text-xs text-muted">
+					Sezóna
+					<select
+						name="ts"
+						class="rounded-md border-line bg-surface py-1 text-sm text-ink"
+						onchange={submit}
+					>
+						<option value="" selected={tf.season === null}>Celá historie</option>
+						{#each tf.seasons as y (y)}
+							<option value={y} selected={tf.season === y}>{seasonName(y)}</option>
+						{/each}
+					</select>
+				</label>
+				<label class="grid gap-1 text-xs text-muted">
+					Oblast
+					<select
+						name="to"
+						class="rounded-md border-line bg-surface py-1 text-sm text-ink"
+						onchange={submit}
+					>
+						<option value="" selected={tf.area === null}>Všechny oblasti</option>
+						{#each tf.areas as a (a.id)}
+							<option value={a.id} selected={tf.area === a.id}>{a.name}</option>
+						{/each}
+					</select>
+				</label>
+				<noscript
+					><button class="rounded-md border border-line px-3 py-1 text-sm">Filtrovat</button
+					></noscript
+				>
+			</form>
 		</div>
 		{#if data.teams.length === 0}
-			<p class="px-4 py-6 text-sm text-muted">Zatím žádné zápasy.</p>
+			<p class="px-4 py-6 text-sm text-muted">
+				{tf.season !== null || tf.area !== null
+					? 'Ve vybraném filtru žádné zápasy.'
+					: 'Zatím žádné zápasy.'}
+			</p>
 		{:else if teams.length === 0}
 			<p class="px-4 py-6 text-sm text-muted">Žádný tým neodpovídá „{teamQuery}“.</p>
 		{:else}
@@ -479,7 +536,8 @@
 					{#each teams as t (t.key)}
 						<tr class="border-t border-line">
 							<td class="px-4 py-2">
-								<a href={teamHref(t.key, t.name)} class="hover:underline">{t.name}</a>
+								<a href={teamHref(t)} class="hover:underline">{t.name}</a>
+								{#if t.category}<span class="block text-xs text-ink-2">{t.category}</span>{/if}
 							</td>
 							<td class="hidden px-4 py-2 text-ink-2 sm:table-cell"
 								>{seasonsOf(t.firstSeason, t.lastSeason)}</td

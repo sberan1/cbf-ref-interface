@@ -9,7 +9,7 @@ import {
 import { feeView } from '#lib/server/referee/fee-view.ts';
 import { listOwnGames } from '#lib/server/referee/own-games.ts';
 import {
-	colleagueFilterOptions,
+	seasonAreaOptions,
 	competitionBreakdown,
 	currentSeasonStartYear,
 	gamesTimeline,
@@ -43,9 +43,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const ids = await personOfficialIds(db, user);
 
 	// colleague leaderboard: ?ks=<season start year> and ?ko=<area>, both optional (all time)
-	const options = await colleagueFilterOptions(db, ids, intParam(url, 'ks'));
+	const options = await seasonAreaOptions(db, ids, intParam(url, 'ks'));
 	const colleagueSeason = options.seasons.find((y) => y === intParam(url, 'ks'));
 	const colleagueArea = options.areas.find((a) => a.id === intParam(url, 'ko'))?.id;
+	// team list: the same filters, independent: ?ts=<season start year> and ?to=<area>
+	const teamOptions = await seasonAreaOptions(db, ids, intParam(url, 'ts'));
+	const teamSeason = teamOptions.seasons.find((y) => y === intParam(url, 'ts'));
+	const teamArea = teamOptions.areas.find((a) => a.id === intParam(url, 'to'))?.id;
 
 	const [
 		summary,
@@ -68,7 +72,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		personFees(db, ids, today),
 		personDays(db, user.id, ids, homeOf(user)),
 		listOwnGames(db, user.id),
-		teamBreakdown(db, ids)
+		teamBreakdown(db, ids, { seasonYear: teamSeason, areaId: teamArea })
 	]);
 	const own = { games: ownGames, today };
 
@@ -87,6 +91,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		competitions,
 		colleagues,
 		teams,
+		teamFilter: { season: teamSeason ?? null, area: teamArea ?? null, ...teamOptions },
 		colleagueFilter: { season: colleagueSeason ?? null, area: colleagueArea ?? null, ...options },
 		earnings: summarizeEarnings(fees, currentSeasonYear, own),
 		allowances: {
