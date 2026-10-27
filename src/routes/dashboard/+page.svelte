@@ -45,6 +45,33 @@
 
 	const submit = (event: Event) => (event.currentTarget as HTMLSelectElement).form?.requestSubmit();
 
+	// colleagues: the first 10, all on request; each opens the games together
+	let allColleagues = $state(false);
+	const colleagues = $derived(allColleagues ? data.colleagues : data.colleagues.slice(0, 10));
+	const colleagueHref = (id: number) =>
+		resolve(
+			`/games?kolega=${id}${cf.season !== null ? `&ks=${cf.season}` : ''}${cf.area !== null ? `&ko=${cf.area}` : ''}`
+		);
+
+	// teams: searchable without diacritics, the first 10 until searched or expanded
+	let teamQuery = $state('');
+	let allTeams = $state(false);
+	const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+	const matchingTeams = $derived(
+		teamQuery.trim()
+			? data.teams.filter((t) => fold(t.name).includes(fold(teamQuery.trim())))
+			: data.teams
+	);
+	const teams = $derived(allTeams || teamQuery.trim() ? matchingTeams : matchingTeams.slice(0, 10));
+	const teamHref = (key: string, name: string) =>
+		resolve(`/games?tym=${encodeURIComponent(key)}&nazev=${encodeURIComponent(name)}`);
+	const seasonsOf = (first: number | null, last: number | null) =>
+		first === null
+			? ''
+			: first === last
+				? seasonName(first)
+				: `${seasonName(first)} – ${seasonName(last)}`;
+
 	const s = $derived(data.summary);
 	const tiles = $derived([
 		{ label: `Sezóna ${seasonName(data.currentSeasonYear)}`, value: s.currentSeason },
@@ -395,14 +422,84 @@
 				<p class="px-4 py-6 text-sm text-muted">Zatím nikdo.</p>
 			{:else}
 				<ul class="divide-y divide-line text-sm">
-					{#each data.colleagues as c (c.officialId)}
-						<li class="flex items-center justify-between px-4 py-2">
-							<span>{c.firstName} {c.lastName}</span>
-							<span class="text-ink-2 tabular-nums">{c.games}</span>
+					{#each colleagues as c (c.officialId)}
+						<li>
+							<a
+								href={colleagueHref(c.officialId)}
+								class="flex items-center justify-between px-4 py-2 hover:bg-page"
+							>
+								<span>{c.firstName} {c.lastName}</span>
+								<span class="text-ink-2 tabular-nums">{c.games}</span>
+							</a>
 						</li>
 					{/each}
 				</ul>
+				{#if data.colleagues.length > 10}
+					<button
+						type="button"
+						class="w-full border-t border-line px-4 py-2 text-left text-xs text-ink-2 hover:text-ink"
+						onclick={() => (allColleagues = !allColleagues)}
+						>{allColleagues
+							? 'Zobrazit jen 10'
+							: `Zobrazit všechny (${data.colleagues.length})`}</button
+					>
+				{/if}
 			{/if}
 		</section>
 	</div>
+
+	<section class="rounded-lg border border-line bg-surface">
+		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+			<h2 class="text-sm font-semibold">Týmy, které jsem pískal</h2>
+			<label class="w-full sm:w-72">
+				<span class="sr-only">Hledat tým</span>
+				<input
+					type="search"
+					bind:value={teamQuery}
+					placeholder="Hledat tým…"
+					class="w-full rounded-md border-line bg-surface py-1 text-sm text-ink placeholder:text-muted"
+				/>
+			</label>
+		</div>
+		{#if data.teams.length === 0}
+			<p class="px-4 py-6 text-sm text-muted">Zatím žádné zápasy.</p>
+		{:else if teams.length === 0}
+			<p class="px-4 py-6 text-sm text-muted">Žádný tým neodpovídá „{teamQuery}“.</p>
+		{:else}
+			<table class="w-full text-left text-sm">
+				<thead class="text-xs text-muted">
+					<tr>
+						<th class="px-4 py-2 font-medium">Tým</th>
+						<th class="hidden px-4 py-2 font-medium sm:table-cell">Sezóny</th>
+						<th class="hidden px-4 py-2 text-right font-medium sm:table-cell">Doma / venku</th>
+						<th class="px-4 py-2 text-right font-medium">Zápasů</th>
+					</tr>
+				</thead>
+				<tbody class="tabular-nums">
+					{#each teams as t (t.key)}
+						<tr class="border-t border-line">
+							<td class="px-4 py-2">
+								<a href={teamHref(t.key, t.name)} class="hover:underline">{t.name}</a>
+							</td>
+							<td class="hidden px-4 py-2 text-ink-2 sm:table-cell"
+								>{seasonsOf(t.firstSeason, t.lastSeason)}</td
+							>
+							<td class="hidden px-4 py-2 text-right text-ink-2 sm:table-cell"
+								>{t.home} / {t.away}</td
+							>
+							<td class="px-4 py-2 text-right">{t.games}</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+			{#if !teamQuery.trim() && data.teams.length > 10}
+				<button
+					type="button"
+					class="w-full border-t border-line px-4 py-2 text-left text-xs text-ink-2 hover:text-ink"
+					onclick={() => (allTeams = !allTeams)}
+					>{allTeams ? 'Zobrazit jen 10' : `Zobrazit všechny (${data.teams.length})`}</button
+				>
+			{/if}
+		{/if}
+	</section>
 </div>

@@ -29,6 +29,7 @@ import {
 	gameOfficial,
 	official,
 	season,
+	team,
 	venue
 } from '../db/schema';
 import {
@@ -252,10 +253,24 @@ export const roleNames: Record<string, string> = {
 };
 
 /** Upcoming (`direction = 'next'`) or past (`'previous'`) games of the person. */
+export interface GamesFilter {
+	/** games shared with any of these officials (a colleague's records) */
+	withOfficialIds?: number[];
+	/** a team's games, see teamCondition */
+	team?: SQL;
+	seasonYear?: number;
+	areaId?: number;
+}
+
 export async function personGames(
 	db: DbOrTx,
 	officialIds: number[],
-	opts: { direction: 'next' | 'previous'; today: string; limit: number }
+	opts: {
+		direction: 'next' | 'previous' | 'all';
+		today: string;
+		limit: number;
+		filter?: GamesFilter;
+	}
 ): Promise<GameRow[]> {
 	const colleagues = sql<string | null>`(
 		select string_agg(coalesce(o2.first_name || ' ', '') || coalesce(o2.last_name, ''), ', ' order by go2.role)
@@ -263,9 +278,21 @@ export async function personGames(
 		where go2.game_id = ${game.id} and go2.official_id <> ${gameOfficial.officialId}
 	)`;
 	const dateFilter =
-		opts.direction === 'next'
-			? gte(game.scheduledDate, opts.today)
-			: lt(game.scheduledDate, opts.today);
+		opts.direction === 'all'
+			? undefined
+			: opts.direction === 'next'
+				? gte(game.scheduledDate, opts.today)
+				: lt(game.scheduledDate, opts.today);
+	const f = opts.filter ?? {};
+	const shared = f.withOfficialIds?.length
+		? inArray(
+				game.id,
+				db
+					.select({ id: gameOfficial.gameId })
+					.from(gameOfficial)
+					.where(inArray(gameOfficial.officialId, f.withOfficialIds))
+			)
+		: undefined;
 	const rows = await db
 		.select({
 			id: game.id,
@@ -287,7 +314,16 @@ export async function personGames(
 		.innerJoin(game, eq(game.id, gameOfficial.gameId))
 		.leftJoin(competition, eq(competition.id, game.competitionId))
 		.leftJoin(venue, eq(venue.id, game.venueId))
-		.where(and(inArray(gameOfficial.officialId, officialIds), dateFilter))
+		.where(
+			and(
+				inArray(gameOfficial.officialId, officialIds),
+				dateFilter,
+				shared,
+				f.team,
+				f.seasonYear !== undefined ? eq(competition.seasonYear, f.seasonYear) : undefined,
+				f.areaId !== undefined ? eq(competition.areaId, f.areaId) : undefined
+			)
+		)
 		.orderBy(
 			opts.direction === 'next' ? asc(game.scheduledDate) : desc(game.scheduledDate),
 			opts.direction === 'next' ? asc(game.scheduledTime) : desc(game.scheduledTime)
@@ -361,11 +397,14 @@ export interface ColleagueFilter {
 	areaId?: number;
 }
 
-/** Officials who shared the most games with the person (any role), optionally in one season / area. */
+/**
+ * Officials who shared the most games with the person (any role), optionally in one season / area;
+ * one row per colleague (official records of the same person merged), all of them without `limit`.
+ */
 export async function topColleagues(
 	db: DbOrTx,
 	officialIds: number[],
-	limit = 5,
+	limit?: number,
 	filter: ColleagueFilter = {}
 ): Promise<ColleagueRow[]> {
 	const mine = db
@@ -380,11 +419,12 @@ export async function topColleagues(
 				filter.areaId !== undefined ? eq(competition.areaId, filter.areaId) : undefined
 			)
 		);
-	return db
+	const person = sql`coalesce(${official.groupId}, ${official.id})`;
+	const query = db
 		.select({
-			officialId: official.id,
-			firstName: official.firstName,
-			lastName: official.lastName,
+			officialId: sql<number>`min(${official.id})`.mapWith(Number),
+			firstName: sql<string | null>`max(${official.firstName})`,
+			lastName: sql<string | null>`max(${official.lastName})`,
 			games: countDistinct(gameOfficial.gameId)
 		})
 		.from(gameOfficial)
@@ -392,9 +432,78 @@ export async function topColleagues(
 		.where(
 			and(inArray(gameOfficial.gameId, mine), notInArray(gameOfficial.officialId, officialIds))
 		)
-		.groupBy(official.id)
-		.orderBy(desc(countDistinct(gameOfficial.gameId)), asc(official.lastName))
-		.limit(limit);
+		.groupBy(person)
+		.orderBy(desc(countDistinct(gameOfficial.gameId)), sql`max(${official.lastName})`);
+	return limit === undefined ? query : query.limit(limit);
+}
+
+export interface TeamRow {
+	/** `g<lineage>`, `t<team id>` or `n<name>`: what /games?tym= filters by */
+	key: string;
+	name: string;
+	games: number;
+	home: number;
+	away: number;
+	firstSeason: number | null;
+	lastSeason: number | null;
+}
+
+/**
+ * Teams in the person's games, most frequent first. A team is followed across seasons by its
+ * lineage (`team.group_id`), named by its latest name; teams without a record by their name.
+ */
+export async function teamBreakdown(db: DbOrTx, officialIds: number[]): Promise<TeamRow[]> {
+	const rows = await db.execute(sql`
+		with mine as (
+			select distinct g.id, g.scheduled_date, c.season_year,
+				g.home_team_id, g.away_team_id, g.home_team_name, g.away_team_name
+			from ${gameOfficial} go
+			join ${game} g on g.id = go.game_id
+			left join ${competition} c on c.id = g.competition_id
+			where go.official_id in ${officialIds}
+		), sides as (
+			select id, scheduled_date, season_year, true as home, home_team_id as team_id, home_team_name as name from mine
+			union all
+			select id, scheduled_date, season_year, false, away_team_id, away_team_name from mine
+		)
+		select
+			coalesce('g' || t.group_id, 't' || s.team_id, 'n' || s.name) as key,
+			coalesce((array_agg(coalesce(s.name, t.name) order by s.scheduled_date desc nulls last))[1], 'neznámý tým') as name,
+			count(distinct s.id)::int as games,
+			count(*) filter (where s.home)::int as home,
+			count(*) filter (where not s.home)::int as away,
+			min(s.season_year) as first_season,
+			max(s.season_year) as last_season
+		from sides s
+		left join ${team} t on t.id = s.team_id
+		where s.team_id is not null or coalesce(s.name, '') <> ''
+		group by 1
+		order by games desc, name
+	`);
+	return (rows as unknown as Record<string, unknown>[]).map((r) => ({
+		key: String(r.key),
+		name: String(r.name),
+		games: Number(r.games),
+		home: Number(r.home),
+		away: Number(r.away),
+		firstSeason: r.first_season === null ? null : Number(r.first_season),
+		lastSeason: r.last_season === null ? null : Number(r.last_season)
+	}));
+}
+
+/** SQL condition: the game is one of the team's (by lineage, team ID or name, see TeamRow.key). */
+export function teamCondition(key: string): SQL | null {
+	const value = key.slice(1);
+	if (key.startsWith('g') && /^\d{1,9}$/.test(value)) {
+		return sql`exists (select 1 from ${team} t where t.id in (${game.homeTeamId}, ${game.awayTeamId}) and t.group_id = ${Number(value)})`;
+	}
+	if (key.startsWith('t') && /^\d{1,9}$/.test(value)) {
+		return or(eq(game.homeTeamId, Number(value)), eq(game.awayTeamId, Number(value))) ?? null;
+	}
+	if (key.startsWith('n') && value.length > 0 && value.length <= 200) {
+		return or(eq(game.homeTeamName, value), eq(game.awayTeamName, value)) ?? null;
+	}
+	return null;
 }
 
 export interface ColleagueFilterOptions {
