@@ -225,6 +225,11 @@ export async function gamesTimeline(
 	});
 }
 
+/** Age / gender category of a competition (U15 žákyně, muži, …), from the catalogue or the payload. */
+const categoryName = sql<
+	string | null
+>`coalesce(${category.name}, ${competition.extra}->>'catname', ${competition.extraV1}->'cat'->>'name')`;
+
 export interface GameRow {
 	id: number;
 	startsAt: Date | null;
@@ -235,6 +240,8 @@ export interface GameRow {
 	roleCode: string;
 	roleName: string;
 	competitionName: string | null;
+	/** age / gender category of the competition (muži, U15 žákyně, …) */
+	category: string | null;
 	seasonYear: number | null;
 	homeTeam: string | null;
 	awayTeam: string | null;
@@ -301,6 +308,7 @@ export async function personGames(
 			scheduledTime: game.scheduledTime,
 			role: gameOfficial.role,
 			competitionName: competition.name,
+			category: categoryName,
 			seasonYear: competition.seasonYear,
 			homeTeam: game.homeTeamName,
 			awayTeam: game.awayTeamName,
@@ -313,6 +321,7 @@ export async function personGames(
 		.from(gameOfficial)
 		.innerJoin(game, eq(game.id, gameOfficial.gameId))
 		.leftJoin(competition, eq(competition.id, game.competitionId))
+		.leftJoin(category, eq(category.id, competition.categoryId))
 		.leftJoin(venue, eq(venue.id, game.venueId))
 		.where(
 			and(
@@ -336,11 +345,6 @@ export async function personGames(
 		roleName: roleNames[r.role] ?? r.role
 	}));
 }
-
-/** Age / gender category of a competition (U15 žákyně, muži, …), from the catalogue or the payload. */
-const categoryName = sql<
-	string | null
->`coalesce(${category.name}, ${competition.extra}->>'catname', ${competition.extraV1}->'cat'->>'name')`;
 
 export interface CompetitionRow {
 	competitionId: number | null;

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { formatGameStart, formatKc } from '#lib/format.ts';
+	import { categoryLabel, formatGameStart, formatKc } from '#lib/format.ts';
 
 	interface Game {
 		id: number;
@@ -8,6 +8,7 @@
 		role: 'referee' | 'commissioner';
 		roleName: string;
 		competitionName: string | null;
+		category?: string | null;
 		homeTeam: string | null;
 		awayTeam: string | null;
 		homeScore: number | null;
@@ -65,7 +66,11 @@
 						{/if}
 					</p>
 					<p class="mt-0.5 text-xs text-ink-2">
-						{[g.competitionName ?? 'neznámá soutěž', [g.venue, g.city].filter(Boolean).join(', ')]
+						{[
+							g.competitionName ?? 'neznámá soutěž',
+							categoryLabel(g.competitionName, g.category),
+							[g.venue, g.city].filter(Boolean).join(', ')
+						]
 							.filter(Boolean)
 							.join(' · ')}
 					</p>

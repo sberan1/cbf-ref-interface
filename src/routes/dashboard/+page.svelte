@@ -1,7 +1,7 @@
 <script lang="ts">
 	import GameList from '#lib/components/GameList.svelte';
 	import GamesChart from '#lib/components/GamesChart.svelte';
-	import { formatDate, formatKc, formatNumber, seasonName } from '#lib/format.ts';
+	import { categoryLabel, formatDate, formatKc, formatNumber, seasonName } from '#lib/format.ts';
 	import { resolve } from '$app/paths';
 	import type { PageProps } from './$types';
 
@@ -40,12 +40,6 @@
 			(tf.season !== null ? `&ts=${tf.season}` : '') +
 			(tf.area !== null ? `&to=${tf.area}` : '')
 	);
-
-	/** Category next to the competition name, unless the name already says it. */
-	const withCategory = (name: string | null, category: string | null) => {
-		const n = name ?? 'neznámá soutěž';
-		return category && !n.toLowerCase().includes(category.toLowerCase()) ? category : null;
-	};
 
 	const submit = (event: Event) => (event.currentTarget as HTMLSelectElement).form?.requestSubmit();
 
@@ -376,8 +370,9 @@
 							<tr class="border-t border-line">
 								<td class="px-4 py-2">
 									{c.name ?? 'neznámá soutěž'}
-									{#if withCategory(c.name, c.category)}
-										<span class="block text-xs text-ink-2">{withCategory(c.name, c.category)}</span>
+									{#if categoryLabel(c.name, c.category)}
+										<span class="block text-xs text-ink-2">{categoryLabel(c.name, c.category)}</span
+										>
 									{/if}
 								</td>
 								<td class="px-4 py-2 text-ink-2">{seasonName(c.seasonYear)}</td>

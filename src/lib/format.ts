@@ -59,3 +59,8 @@ export function formatKc(n: number) {
 export function seasonName(startYear: number | null) {
 	return startYear === null ? '' : `${startYear}/${String((startYear + 1) % 100).padStart(2, '0')}`;
 }
+
+/** The competition's category to show next to its name, unless the name already says it. */
+export function categoryLabel(name: string | null, category: string | null | undefined) {
+	return category && !(name ?? '').toLowerCase().includes(category.toLowerCase()) ? category : null;
+}
