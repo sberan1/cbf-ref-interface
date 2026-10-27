@@ -225,6 +225,11 @@ export async function gamesTimeline(
 	});
 }
 
+/** Age / gender category of a competition (U15 žákyně, muži, …), from the catalogue or the payload. */
+const categoryName = sql<
+	string | null
+>`coalesce(${category.name}, ${competition.extra}->>'catname', ${competition.extraV1}->'cat'->>'name')`;
+
 export interface GameRow {
 	id: number;
 	startsAt: Date | null;
@@ -235,6 +240,8 @@ export interface GameRow {
 	roleCode: string;
 	roleName: string;
 	competitionName: string | null;
+	/** age / gender category of the competition (muži, U15 žákyně, …) */
+	category: string | null;
 	seasonYear: number | null;
 	homeTeam: string | null;
 	awayTeam: string | null;
@@ -301,6 +308,7 @@ export async function personGames(
 			scheduledTime: game.scheduledTime,
 			role: gameOfficial.role,
 			competitionName: competition.name,
+			category: categoryName,
 			seasonYear: competition.seasonYear,
 			homeTeam: game.homeTeamName,
 			awayTeam: game.awayTeamName,
@@ -313,6 +321,7 @@ export async function personGames(
 		.from(gameOfficial)
 		.innerJoin(game, eq(game.id, gameOfficial.gameId))
 		.leftJoin(competition, eq(competition.id, game.competitionId))
+		.leftJoin(category, eq(category.id, competition.categoryId))
 		.leftJoin(venue, eq(venue.id, game.venueId))
 		.where(
 			and(
@@ -336,11 +345,6 @@ export async function personGames(
 		roleName: roleNames[r.role] ?? r.role
 	}));
 }
-
-/** Age / gender category of a competition (U15 žákyně, muži, …), from the catalogue or the payload. */
-const categoryName = sql<
-	string | null
->`coalesce(${category.name}, ${competition.extra}->>'catname', ${competition.extraV1}->'cat'->>'name')`;
 
 export interface CompetitionRow {
 	competitionId: number | null;
@@ -438,9 +442,11 @@ export async function topColleagues(
 }
 
 export interface TeamRow {
-	/** `g<lineage>`, `t<team id>` or `n<name>`: what /games?tym= filters by */
+	/** `g<lineage>`, `t<team id>` or `n<category>\u001f<name>`: what /games?tym= filters by */
 	key: string;
 	name: string;
+	/** age / gender category of the team's latest competition */
+	category: string | null;
 	games: number;
 	home: number;
 	away: number;
@@ -448,27 +454,40 @@ export interface TeamRow {
 	lastSeason: number | null;
 }
 
+/** Separates category and name in the key of a team without a record. */
+const KEY_SEP = '\u001f';
+
 /**
- * Teams in the person's games, most frequent first. A team is followed across seasons by its
- * lineage (`team.group_id`), named by its latest name; teams without a record by their name.
+ * Teams in the person's games, most frequent first, optionally in one season / area. A team is
+ * followed across seasons by its lineage (`team.group_id`) and named by its latest name and
+ * category; teams without a record are told apart by name and category.
  */
-export async function teamBreakdown(db: DbOrTx, officialIds: number[]): Promise<TeamRow[]> {
+export async function teamBreakdown(
+	db: DbOrTx,
+	officialIds: number[],
+	filter: ColleagueFilter = {}
+): Promise<TeamRow[]> {
 	const rows = await db.execute(sql`
 		with mine as (
 			select distinct g.id, g.scheduled_date, c.season_year,
+				coalesce(cat.name, c.extra->>'catname', c.extra_v1->'cat'->>'name') as category,
 				g.home_team_id, g.away_team_id, g.home_team_name, g.away_team_name
 			from ${gameOfficial} go
 			join ${game} g on g.id = go.game_id
 			left join ${competition} c on c.id = g.competition_id
+			left join ${category} cat on cat.id = c.category_id
 			where go.official_id in ${officialIds}
+				${filter.seasonYear !== undefined ? sql`and c.season_year = ${filter.seasonYear}` : sql``}
+				${filter.areaId !== undefined ? sql`and c.area_id = ${filter.areaId}` : sql``}
 		), sides as (
-			select id, scheduled_date, season_year, true as home, home_team_id as team_id, home_team_name as name from mine
+			select id, scheduled_date, season_year, category, true as home, home_team_id as team_id, home_team_name as name from mine
 			union all
-			select id, scheduled_date, season_year, false, away_team_id, away_team_name from mine
+			select id, scheduled_date, season_year, category, false, away_team_id, away_team_name from mine
 		)
 		select
-			coalesce('g' || t.group_id, 't' || s.team_id, 'n' || s.name) as key,
+			coalesce('g' || t.group_id, 't' || s.team_id, 'n' || coalesce(s.category, '') || ${KEY_SEP} || s.name) as key,
 			coalesce((array_agg(coalesce(s.name, t.name) order by s.scheduled_date desc nulls last))[1], 'neznámý tým') as name,
+			(array_agg(s.category order by s.scheduled_date desc nulls last) filter (where s.category is not null))[1] as category,
 			count(distinct s.id)::int as games,
 			count(*) filter (where s.home)::int as home,
 			count(*) filter (where not s.home)::int as away,
@@ -483,6 +502,7 @@ export async function teamBreakdown(db: DbOrTx, officialIds: number[]): Promise<
 	return (rows as unknown as Record<string, unknown>[]).map((r) => ({
 		key: String(r.key),
 		name: String(r.name),
+		category: r.category === null ? null : String(r.category),
 		games: Number(r.games),
 		home: Number(r.home),
 		away: Number(r.away),
@@ -500,13 +520,21 @@ export function teamCondition(key: string): SQL | null {
 	if (key.startsWith('t') && /^\d{1,9}$/.test(value)) {
 		return or(eq(game.homeTeamId, Number(value)), eq(game.awayTeamId, Number(value))) ?? null;
 	}
-	if (key.startsWith('n') && value.length > 0 && value.length <= 200) {
-		return or(eq(game.homeTeamName, value), eq(game.awayTeamName, value)) ?? null;
+	const sep = value.indexOf(KEY_SEP);
+	if (key.startsWith('n') && sep >= 0 && value.length <= 300) {
+		const cat = value.slice(0, sep);
+		const name = value.slice(sep + 1);
+		if (!name) return null;
+		return sql`(${game.homeTeamName} = ${name} or ${game.awayTeamName} = ${name}) and coalesce((
+			select coalesce(cat.name, c.extra->>'catname', c.extra_v1->'cat'->>'name')
+			from ${competition} c left join ${category} cat on cat.id = c.category_id
+			where c.id = ${game.competitionId}
+		), '') = ${cat}`;
 	}
 	return null;
 }
 
-export interface ColleagueFilterOptions {
+export interface SeasonAreaOptions {
 	seasons: number[];
 	areas: { id: number; name: string }[];
 }
@@ -515,14 +543,14 @@ const areaLabel = (id: number, name: string | null) =>
 	name?.trim() || (id === 0 ? 'Celostátní soutěže' : `Oblast ${id}`);
 
 /**
- * Seasons and areas the person has games in, for the colleague filters; the areas are those of the
- * selected season (all seasons when none is selected).
+ * Seasons and areas the person has games in, for the colleague and team filters; the areas are
+ * those of the selected season (all seasons when none is selected).
  */
-export async function colleagueFilterOptions(
+export async function seasonAreaOptions(
 	db: DbOrTx,
 	officialIds: number[],
 	seasonYear?: number
-): Promise<ColleagueFilterOptions> {
+): Promise<SeasonAreaOptions> {
 	const rows = await db
 		.selectDistinct({
 			seasonYear: competition.seasonYear,

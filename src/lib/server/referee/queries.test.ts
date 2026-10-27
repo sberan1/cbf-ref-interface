@@ -30,7 +30,10 @@ describe('teamCondition', () => {
 	it('accepts lineage, team ID and name keys only', () => {
 		expect(teamCondition('g5000')).not.toBeNull();
 		expect(teamCondition('t42')).not.toBeNull();
-		expect(teamCondition('nSokol Žižkov')).not.toBeNull();
+		expect(teamCondition('nU15\u001fSokol Žižkov')).not.toBeNull();
+		expect(teamCondition('n\u001fSokol Žižkov')).not.toBeNull();
+		expect(teamCondition('nSokol Žižkov')).toBeNull();
+		expect(teamCondition('nU15\u001f')).toBeNull();
 		expect(teamCondition('gabc')).toBeNull();
 		expect(teamCondition('x1')).toBeNull();
 		expect(teamCondition('n')).toBeNull();
