@@ -27,6 +27,9 @@
 						<a href={resolve('/trips')} class="rounded px-2 py-1 text-ink-2 hover:text-ink"
 							>Cesty a náhrady</a
 						>
+						<a href={resolve('/payouts')} class="rounded px-2 py-1 text-ink-2 hover:text-ink"
+							>Vyúčtování</a
+						>
 						<a href={resolve('/own-games')} class="rounded px-2 py-1 text-ink-2 hover:text-ink"
 							>Vlastní zápasy</a
 						>
