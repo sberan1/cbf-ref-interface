@@ -1,7 +1,7 @@
 /**
  * Application layer: accounts signed in with Google and paired with a ČBF official after an
  * admin's approval (ADR 0008), their sessions (ADR 0006), the travel data behind the
- * allowances (PDR 0003) and games entered by hand (PDR 0004).
+ * allowances (PDR 0003), games entered by hand (PDR 0004) and the calendar feed (PDR 0006).
  */
 import {
 	boolean,
@@ -53,6 +53,8 @@ export const appUser = appSchema.table(
 		homeLat: doublePrecision('home_lat'),
 		homeLon: doublePrecision('home_lon'),
 		homeMunicipality: text('home_municipality'),
+		/** secret of the calendar feed URL (PDR 0006); null = feed off */
+		calendarToken: text('calendar_token').unique(),
 		createdAt: tstz('created_at').notNull().defaultNow(),
 		lastLoginAt: tstz('last_login_at').notNull().defaultNow()
 	},

@@ -12,6 +12,15 @@
 	let placeLabel = $state('');
 	let placeAddress = $state('');
 	let placePoint = $state<{ lat: number; lon: number; municipality: string | null } | null>(null);
+	let calendarCopied = $state(false);
+
+	const webcal = (url: string) => url.replace(/^https?:/, 'webcal:');
+
+	async function copyCalendarUrl(url: string) {
+		await navigator.clipboard.writeText(url);
+		calendarCopied = true;
+		setTimeout(() => (calendarCopied = false), 1500);
+	}
 </script>
 
 <svelte:head>
@@ -70,6 +79,71 @@
 				</p>
 			{/if}
 		</form>
+	</section>
+
+	<section class="rounded-lg border border-line bg-surface p-4">
+		<h2 class="text-sm font-semibold">Kalendář</h2>
+		<p class="mt-1 text-xs text-muted">
+			Zápasy za poslední rok a všechny nadcházející jako kalendář k odběru (Google, Apple, Outlook).
+			U zápasu je soutěž, kolo a číslo utkání, hala s adresou, celá delegace, odměna, výsledek a
+			odkazy na přenos. Kalendář se sám aktualizuje, když se změní delegace nebo čas.
+		</p>
+		{#if data.calendarUrl}
+			<div class="mt-3 flex gap-2">
+				<label for="calendar-url" class="sr-only">Adresa kalendáře</label>
+				<input
+					id="calendar-url"
+					readonly
+					value={data.calendarUrl}
+					onfocus={(e) => e.currentTarget.select()}
+					class="min-w-0 flex-1 rounded-md border-line bg-surface font-mono text-xs text-ink"
+				/>
+				<button
+					type="button"
+					class="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:opacity-90"
+					onclick={() => data.calendarUrl && copyCalendarUrl(data.calendarUrl)}
+					>{calendarCopied ? 'Zkopírováno' : 'Kopírovat'}</button
+				>
+			</div>
+			<p class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+				<a
+					class="text-accent hover:underline"
+					href={`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal(data.calendarUrl))}`}
+					target="_blank"
+					rel="noopener noreferrer">Přidat do Google Kalendáře</a
+				>
+				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external webcal: link -->
+				<a class="text-accent hover:underline" href={webcal(data.calendarUrl)}
+					>Otevřít v Apple Kalendáři / Outlooku</a
+				>
+			</p>
+			<p class="mt-2 text-xs text-muted">
+				Adresa je tajná: kdo ji zná, vidí tvoje zápasy. Google Kalendář ji obnovuje sám zhruba
+				jednou za několik hodin, Apple a Outlook podle svého nastavení.
+			</p>
+			<div class="mt-3 flex flex-wrap gap-2">
+				<form method="POST" action="?/calendarOn" use:enhance>
+					<button class="rounded-md border border-line px-3 py-1 text-xs hover:border-accent"
+						>Vygenerovat novou adresu</button
+					>
+				</form>
+				<form method="POST" action="?/calendarOff" use:enhance>
+					<button class="rounded-md border border-line px-3 py-1 text-xs hover:border-danger"
+						>Vypnout kalendář</button
+					>
+				</form>
+			</div>
+			{#if form?.calendarRenewed}<p class="mt-2 text-xs text-ink-2">
+					Nová adresa je aktivní, stará přestala fungovat. V kalendáři ji vyměň.
+				</p>{/if}
+		{:else}
+			<form method="POST" action="?/calendarOn" use:enhance class="mt-3">
+				<button
+					class="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:opacity-90"
+					>Zapnout kalendář</button
+				>
+			</form>
+		{/if}
 	</section>
 
 	<section class="rounded-lg border border-line bg-surface p-4">
