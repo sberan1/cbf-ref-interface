@@ -30,7 +30,8 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          # same patch release as the Docker image (October 2026 security release)
+          node-version: 22.23.4
           cache: npm
       - run: npm ci
       - run: npm run lint
