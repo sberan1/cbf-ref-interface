@@ -10,7 +10,8 @@ import {
 	periodsFromCumulative,
 	pragueToUtc,
 	scorePair,
-	str
+	str,
+	venuePoint
 } from './coerce';
 
 describe('scalar coercion', () => {
@@ -34,6 +35,13 @@ describe('scalar coercion', () => {
 		expect(num('0,75')).toBe(0.75);
 		expect(num('50.123')).toBe(50.123);
 		expect(num('abc')).toBeNull();
+	});
+
+	it('treats zero or far-away hall coordinates as unknown', () => {
+		expect(venuePoint('50.46289230', '13.41845380')).toEqual({ lat: 50.4628923, lon: 13.4184538 });
+		expect(venuePoint('0.00000000', '0.00000000')).toEqual({ lat: null, lon: null });
+		expect(venuePoint('13.41845380', '50.46289230')).toEqual({ lat: null, lon: null });
+		expect(venuePoint('50.46', null)).toEqual({ lat: null, lon: null });
 	});
 
 	it('parses 0/1 flags', () => {

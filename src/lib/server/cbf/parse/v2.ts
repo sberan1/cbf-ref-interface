@@ -19,6 +19,7 @@ import {
 	pragueToUtc,
 	scorePair,
 	str,
+	venuePoint,
 	type Rec
 } from './coerce';
 import { asRecordArray, CbfParseError, decodePayload, xmlList, xmlRoot } from './payload';
@@ -186,8 +187,7 @@ function parseVenue(rec: Rec): ParsedVenue | null {
 		street: str(rec.street),
 		city: str(rec.city),
 		zip: str(rec.zipcode),
-		lat: num(rec.lat),
-		lon: num(rec.lon)
+		...venuePoint(rec.lat, rec.lon)
 	};
 	return venue.name || venue.city ? venue : null;
 }

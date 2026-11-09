@@ -129,6 +129,10 @@ describe('v2 parsers', () => {
 			away: { id: 10110, groupId: 421, abbr: 'PIS' },
 			venue: { hallId: null, name: 'Sportcentrum SLUNETA', lat: 50.6653183 }
 		});
+		const [noGps] = parseV2Games(
+			JSON.stringify([{ ...listRecord, lat: '0.00000000', lon: '0.00000000' }])
+		);
+		expect(noGps.venue).toMatchObject({ name: 'Sportcentrum SLUNETA', lat: null, lon: null });
 		expect(g.quarters.map((q) => [q.home, q.away])).toEqual([
 			[13, 8],
 			[19, 18],
