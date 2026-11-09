@@ -52,6 +52,18 @@ export function num(value: unknown): number | null {
 	return Number.parseFloat(s);
 }
 
+/**
+ * Hall GPS. ČBF sends "0.00000000" for halls without coordinates, and a point outside central
+ * Europe is a data error as well; both become unknown, so trips locate the hall by its address.
+ */
+export function venuePoint(lat: unknown, lon: unknown): { lat: number | null; lon: number | null } {
+	const la = num(lat);
+	const lo = num(lon);
+	return la !== null && lo !== null && la >= 45 && la <= 56 && lo >= 5 && lo <= 25
+		? { lat: la, lon: lo }
+		: { lat: null, lon: null };
+}
+
 export function bool01(value: unknown): boolean | null {
 	if (typeof value === 'boolean') return value;
 	const s = str(value)?.toLowerCase();

@@ -4,7 +4,16 @@
  */
 import { and, asc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client';
-import { appTrip, competition, game, gameOfficial, official, phase, venue } from '../db/schema';
+import {
+	appTrip,
+	appVenueFix,
+	competition,
+	game,
+	gameOfficial,
+	official,
+	phase,
+	venue
+} from '../db/schema';
 import {
 	computeDayAllowance,
 	passengersByLeg,
@@ -28,8 +37,11 @@ export interface DayGameDetail extends DayGame {
 		name: string | null;
 		street: string | null;
 		city: string | null;
+		/** the hand-corrected position when there is one, else ČBF's GPS */
 		lat: number | null;
 		lon: number | null;
+		/** address the position was corrected from (PDR 0003) */
+		fixAddress?: string | null;
 	};
 	colleagues: string[];
 }
@@ -82,8 +94,9 @@ export async function gameDays(
 			venueName: venue.name,
 			venueStreet: venue.street,
 			venueCity: venue.city,
-			venueLat: venue.lat,
-			venueLon: venue.lon,
+			venueLat: sql<number | null>`coalesce(${appVenueFix.lat}, ${venue.lat})`,
+			venueLon: sql<number | null>`coalesce(${appVenueFix.lon}, ${venue.lon})`,
+			venueFixAddress: appVenueFix.address,
 			colleagues
 		})
 		.from(gameOfficial)
@@ -91,6 +104,7 @@ export async function gameDays(
 		.leftJoin(competition, eq(competition.id, game.competitionId))
 		.leftJoin(phase, eq(phase.id, game.phaseId))
 		.leftJoin(venue, eq(venue.id, game.venueId))
+		.leftJoin(appVenueFix, eq(appVenueFix.venueId, venue.id))
 		.where(and(...filters))
 		.orderBy(asc(game.scheduledDate), asc(game.startsAt), asc(game.scheduledTime));
 
@@ -121,7 +135,8 @@ export async function gameDays(
 				street: r.venueStreet,
 				city: r.venueCity,
 				lat: r.venueLat,
-				lon: r.venueLon
+				lon: r.venueLon,
+				fixAddress: r.venueFixAddress
 			},
 			colleagues: (r.colleagues ?? []).map((c) => c.trim()).filter(Boolean)
 		});
@@ -180,6 +195,30 @@ export function homeStop(home: Home): TripStop {
 /** Alone by car: home → venues → home. */
 export function defaultStops(day: GameDay, home: Home): TripStop[] {
 	return [homeStop(home), ...venueStops(day), homeStop(home)];
+}
+
+/**
+ * The stops of an edited or stored trip with home and the venues taken from the server: home and
+ * venue stops are replaced in order, missing venues go before the final home, pickups and
+ * drop-offs stay as they are.
+ */
+export function withServerStops(stops: TripStop[], day: GameDay, home: Home | null): TripStop[] {
+	const venues = venueStops(day);
+	let v = 0;
+	const out = stops
+		.map((s) => {
+			if (s.kind === 'home') return home ? homeStop(home) : null;
+			if (s.kind === 'venue') return venues[v++] ?? null;
+			return s;
+		})
+		.filter((s): s is TripStop => s !== null);
+	if (v < venues.length) out.splice(out.length - 1, 0, ...venues.slice(v));
+	// the trip starts and ends at home whatever was stored or sent
+	if (home) {
+		if (out[0]?.kind !== 'home') out.unshift(homeStop(home));
+		if (out.length < 2 || out.at(-1)?.kind !== 'home') out.push(homeStop(home));
+	}
+	return out;
 }
 
 /** Fills missing coordinates (venues without GPS, typed addresses) by geocoding. */

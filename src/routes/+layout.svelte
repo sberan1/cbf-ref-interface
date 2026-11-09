@@ -38,7 +38,9 @@
 						>
 					{/if}
 					{#if data.user.isAdmin}
-						<a href={resolve('/admin')} class="rounded px-2 py-1 text-ink-2 hover:text-ink">Účty</a>
+						<a href={resolve('/admin')} class="rounded px-2 py-1 text-ink-2 hover:text-ink"
+							>Správa</a
+						>
 					{/if}
 				</nav>
 				<div class="flex items-center gap-3 text-sm">

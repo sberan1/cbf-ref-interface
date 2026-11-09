@@ -8,7 +8,7 @@ import { appPlace, appTrip } from '#lib/server/db/schema/index.ts';
 import { personOfficialIds } from '#lib/server/referee/queries.ts';
 import { tripModes, tripStopSchema, type TripStop } from '#lib/server/travel/allowances.ts';
 import { holidayName } from '#lib/server/travel/holidays.ts';
-import { getMaps, homeOf } from '#lib/server/travel/service.ts';
+import { addressNotFound, getMaps, homeOf, locate } from '#lib/server/travel/service.ts';
 import { personDays } from '#lib/server/travel/summary.ts';
 import {
 	defaultStops,
@@ -19,8 +19,10 @@ import {
 	routeLegs,
 	saveTrip,
 	TripError,
-	venueStops
+	venueStops,
+	withServerStops
 } from '#lib/server/travel/trips.ts';
+import { clearVenueFix, mapUrl, setVenueFix } from '#lib/server/travel/venue-fix.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -73,6 +75,34 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		}));
 
 	const stops = trip?.stops ?? (home ? defaultStops(day, home) : venueStops(day));
+
+	// halls of the day with where their position comes from, to check it on the map and fix it
+	const venues = [
+		...new Map(
+			day.games.flatMap((g) => (g.venue.id === null ? [] : [[g.venue.id, g] as const]))
+		).values()
+	].map((g) => {
+		const v = g.venue;
+		// without GPS the hall was looked up by its address when the trip was computed
+		const found = stops.find(
+			(s) => s.kind === 'venue' && s.gameIds?.includes(g.gameId) && s.lat != null
+		);
+		const point =
+			v.lat !== null && v.lon !== null
+				? { lat: v.lat, lon: v.lon }
+				: found?.lat != null && found.lon != null
+					? { lat: found.lat, lon: found.lon }
+					: null;
+		return {
+			id: v.id as number,
+			name: v.name ?? 'Hala',
+			address: [v.street, v.city].filter(Boolean).join(', '),
+			fixAddress: v.fixAddress ?? null,
+			source: (v.fixAddress ? 'fix' : v.lat !== null ? 'cbf' : 'address') as
+				'fix' | 'cbf' | 'address',
+			mapUrl: point ? mapUrl(point) : null
+		};
+	});
 	return {
 		date: day.date,
 		holiday: holidayName(day.date) ?? null,
@@ -89,6 +119,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		colleagues: [...new Set(day.games.flatMap((g) => g.colleagues))],
 		hasHome: home !== null,
 		mapsLive: getMaps(db).live,
+		// hall positions are shared by everyone, so only admins correct them
+		canFixVenues: user.role === 'admin',
 		trip: trip
 			? {
 					status: trip.status,
@@ -100,6 +132,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				}
 			: null,
 		stops,
+		venues,
 		places,
 		copySources,
 		allowance
@@ -121,6 +154,8 @@ const formSchema = z.object({
 	note: z.string().max(500).optional(),
 	savePlaces: z.string().optional()
 });
+
+const adminOnly = 'Polohu haly může opravit jen správce.';
 
 const emptyToUndefined = (v: FormDataEntryValue | null) => (v === null || v === '' ? undefined : v);
 
@@ -144,21 +179,15 @@ export const actions: Actions = {
 		}
 
 		// home and venues always come from the server; the client only adds pickups and drop-offs
-		const venues = venueStops(row.day);
-		let v = 0;
-		const stops: TripStop[] = parsed.data.stops
-			.map((s) => {
-				if (s.kind === 'home') return home ? homeStop(home) : null;
-				if (s.kind === 'venue') return venues[v++] ?? null;
-				return { ...s, label: s.label || (s.kind === 'pickup' ? 'Vyzvednutí' : 'Vysazení') };
-			})
-			.filter((s): s is TripStop => s !== null);
-		if (v < venues.length) stops.splice(stops.length - 1, 0, ...venues.slice(v));
-		// the trip starts and ends at home whatever the client sent
-		if (home) {
-			if (stops[0]?.kind !== 'home') stops.unshift(homeStop(home));
-			if (stops.length < 2 || stops.at(-1)?.kind !== 'home') stops.push(homeStop(home));
-		}
+		const stops = withServerStops(
+			parsed.data.stops.map((s): TripStop =>
+				s.kind === 'pickup' || s.kind === 'dropoff'
+					? { ...s, label: s.label || (s.kind === 'pickup' ? 'Vyzvednutí' : 'Vysazení') }
+					: s
+			),
+			row.day,
+			home
+		);
 
 		const maps = getMaps(db);
 		let resolved: TripStop[];
@@ -236,6 +265,43 @@ export const actions: Actions = {
 			throw err;
 		}
 		return { saved: true };
+	},
+
+	/** an admin corrects a hall's position for everyone (PDR 0003); trips through it are rerouted */
+	fixVenue: async ({ locals, params, request }) => {
+		const { user, db, row } = await dayOf(locals, params.date);
+		const f = await request.formData();
+		const venueId = Number(f.get('venueId'));
+		if (user.role !== 'admin') return fail(403, { venueError: adminOnly, venueId });
+		if (!row.day.games.some((g) => g.venue.id === venueId)) {
+			return fail(400, { venueError: 'Tahle hala k tomuto dni nepatří.', venueId });
+		}
+		const address = String(f.get('address') ?? '').trim();
+		if (!address) return fail(400, { venueError: 'Zadej adresu haly.', venueId });
+		if (address.length > 300) return fail(400, { venueError: 'Adresa je moc dlouhá.', venueId });
+		const found = await locate(db, f, address);
+		if (!found) return fail(400, { venueError: addressNotFound(db), venueId });
+		const r = await setVenueFix(db, getMaps(db), {
+			venueId,
+			address,
+			lat: found.lat,
+			lon: found.lon,
+			userId: user.id
+		});
+		log.info('venue fixed', { userId: user.id, venueId, ...r });
+		return { venueFixed: venueId, ...r };
+	},
+
+	unfixVenue: async ({ locals, params, request }) => {
+		const { user, db, row } = await dayOf(locals, params.date);
+		const venueId = Number((await request.formData()).get('venueId'));
+		if (user.role !== 'admin') return fail(403, { venueError: adminOnly, venueId });
+		if (!row.day.games.some((g) => g.venue.id === venueId)) {
+			return fail(400, { venueError: 'Tahle hala k tomuto dni nepatří.', venueId });
+		}
+		const r = await clearVenueFix(db, getMaps(db), venueId);
+		log.info('venue fix removed', { userId: user.id, venueId, ...r });
+		return { venueFixed: venueId, reverted: true, ...r };
 	},
 
 	reset: async ({ locals, params }) => {
