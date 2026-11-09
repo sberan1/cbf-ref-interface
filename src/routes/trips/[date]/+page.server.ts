@@ -20,8 +20,7 @@ import {
 	saveTrip,
 	TripError,
 	venueStops,
-	withServerStops,
-	type StoredTrip
+	withServerStops
 } from '#lib/server/travel/trips.ts';
 import { clearVenueFix, mapUrl, setVenueFix } from '#lib/server/travel/venue-fix.ts';
 import type { Actions, PageServerLoad } from './$types';
@@ -156,38 +155,6 @@ const formSchema = z.object({
 	savePlaces: z.string().optional()
 });
 
-/**
- * After a hall moved: the day's trip computed again with the new position, keeping the way the
- * user went and their costs; a default trip stays a default one. Returns an error message.
- */
-async function recompute(
-	locals: App.Locals,
-	date: string,
-	before: StoredTrip | null
-): Promise<string | null> {
-	if (!before || before.mode === 'none') return null;
-	const { user, db, row } = await dayOf(locals, date);
-	const home = homeOf(user);
-	if (!home) return null;
-	const stops =
-		before.status === 'auto'
-			? defaultStops(row.day, home)
-			: withServerStops(before.stops, row.day, home);
-	const maps = getMaps(db);
-	try {
-		const resolved = await resolveStops(maps, stops);
-		await saveTrip(db, user.id, {
-			...before,
-			stops: resolved,
-			legs: await routeLegs(maps, resolved)
-		});
-	} catch (err) {
-		if (err instanceof TripError) return err.message;
-		throw err;
-	}
-	return null;
-}
-
 const adminOnly = 'Polohu haly může opravit jen správce.';
 
 const emptyToUndefined = (v: FormDataEntryValue | null) => (v === null || v === '' ? undefined : v);
@@ -300,7 +267,7 @@ export const actions: Actions = {
 		return { saved: true };
 	},
 
-	/** an admin corrects a hall's position for everyone (PDR 0003); this day's trip is recomputed */
+	/** an admin corrects a hall's position for everyone (PDR 0003); trips through it are rerouted */
 	fixVenue: async ({ locals, params, request }) => {
 		const { user, db, row } = await dayOf(locals, params.date);
 		const f = await request.formData();
@@ -314,9 +281,15 @@ export const actions: Actions = {
 		if (address.length > 300) return fail(400, { venueError: 'Adresa je moc dlouhá.', venueId });
 		const found = await locate(db, f, address);
 		if (!found) return fail(400, { venueError: addressNotFound(db), venueId });
-		await setVenueFix(db, { venueId, address, lat: found.lat, lon: found.lon, userId: user.id });
-		log.info('venue fixed', { userId: user.id, venueId });
-		return { venueFixed: venueId, error: await recompute(locals, params.date, row.trip) };
+		const r = await setVenueFix(db, getMaps(db), {
+			venueId,
+			address,
+			lat: found.lat,
+			lon: found.lon,
+			userId: user.id
+		});
+		log.info('venue fixed', { userId: user.id, venueId, ...r });
+		return { venueFixed: venueId, ...r };
 	},
 
 	unfixVenue: async ({ locals, params, request }) => {
@@ -326,13 +299,9 @@ export const actions: Actions = {
 		if (!row.day.games.some((g) => g.venue.id === venueId)) {
 			return fail(400, { venueError: 'Tahle hala k tomuto dni nepatří.', venueId });
 		}
-		await clearVenueFix(db, venueId);
-		log.info('venue fix removed', { userId: user.id, venueId });
-		return {
-			venueFixed: venueId,
-			reverted: true,
-			error: await recompute(locals, params.date, row.trip)
-		};
+		const r = await clearVenueFix(db, getMaps(db), venueId);
+		log.info('venue fix removed', { userId: user.id, venueId, ...r });
+		return { venueFixed: venueId, reverted: true, ...r };
 	},
 
 	reset: async ({ locals, params }) => {

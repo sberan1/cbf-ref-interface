@@ -109,6 +109,10 @@
 		fixPoint = null;
 	}
 
+	const rerouteNote = (r: { rerouted: number; failed: number }) =>
+		`Přepočítané cesty: ${r.rerouted}.` +
+		(r.failed ? ` U ${r.failed} se trasu nepodařilo spočítat, zůstala původní.` : '');
+
 	const sources = {
 		fix: 'opravená ručně',
 		cbf: 'GPS z ČBF',
@@ -345,7 +349,7 @@
 					<h2 class="text-sm font-semibold">Poloha hal</h2>
 					<p class="mt-1 text-xs text-muted">
 						{data.canFixVenues
-							? 'Když hala na mapě nesedí, oprav ji adresou. Oprava platí pro všechny rozhodčí a cesta tohoto dne se hned přepočítá.'
+							? 'Když hala na mapě nesedí, oprav ji adresou. Oprava platí pro všechny rozhodčí a jejich cesty přes tuhle halu se hned přepočítají.'
 							: 'Když hala na mapě nesedí, dej vědět správci. Polohu opraví pro všechny.'}
 					</p>
 					<ul class="mt-3 space-y-3">
@@ -429,13 +433,10 @@
 								{#if form?.venueError && form.venueId === v.id}
 									<p class="mt-2 text-xs text-danger" role="alert">{form.venueError}</p>
 								{/if}
-								{#if form?.venueFixed === v.id}
+								{#if form?.venueFixed === v.id && 'rerouted' in form}
 									<p class="mt-2 text-xs text-ink-2" role="status">
-										{form.error
-											? `Poloha uložena, ale cestu se nepodařilo přepočítat: ${form.error}`
-											: 'reverted' in form && form.reverted
-												? 'Vrácena poloha z ČBF, cesta přepočítaná.'
-												: 'Poloha uložena a cesta přepočítaná.'}
+										{'reverted' in form ? 'Vrácena poloha z ČBF.' : 'Poloha uložena.'}
+										{rerouteNote(form)}
 									</p>
 								{/if}
 							</li>

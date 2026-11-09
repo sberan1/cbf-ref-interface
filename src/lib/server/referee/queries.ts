@@ -59,8 +59,15 @@ export interface OfficialCandidate {
 const DIACRITICS_FROM = 'áäčďéěëíĺľňóôöŕřšťúůüýž';
 const DIACRITICS_TO = 'aacdeeeillnooorrstuuuyz';
 
+/** SQL twin of foldText: lowercase without Czech/Slovak diacritics. */
+export function foldSql(value: SQL): SQL {
+	return sql`translate(lower(${value}), ${DIACRITICS_FROM}, ${DIACRITICS_TO})`;
+}
+
 function foldedName(): SQL {
-	return sql`translate(lower(coalesce(${official.firstName}, '') || ' ' || coalesce(${official.lastName}, '')), ${DIACRITICS_FROM}, ${DIACRITICS_TO})`;
+	return foldSql(
+		sql`coalesce(${official.firstName}, '') || ' ' || coalesce(${official.lastName}, '')`
+	);
 }
 
 /** Officials matching a name ("novak jan", diacritics optional) or an ID (v2 or canonical). */
