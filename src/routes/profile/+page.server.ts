@@ -1,34 +1,11 @@
 import { fail } from '@sveltejs/kit';
 import { and, asc, eq } from 'drizzle-orm';
-import { z } from 'zod';
 import { requireApproved } from '#lib/server/auth/guards.ts';
 import { calendarToken, setCalendarToken } from '#lib/server/calendar/feed.ts';
 import { getDb } from '#lib/server/db/index.ts';
 import { appPlace, appTrip, appUser } from '#lib/server/db/schema/index.ts';
-import { getMaps } from '#lib/server/travel/service.ts';
+import { addressNotFound, getMaps, locate } from '#lib/server/travel/service.ts';
 import type { Actions, PageServerLoad } from './$types';
-
-const pointSchema = z.object({
-	lat: z.coerce.number().min(-90).max(90),
-	lon: z.coerce.number().min(-180).max(180),
-	municipality: z.string().max(120).nullish()
-});
-
-/** Coordinates picked from a suggestion, or the geocoded address text. */
-async function locate(form: FormData, address: string) {
-	const picked = pointSchema.safeParse({
-		lat: form.get('lat') || undefined,
-		lon: form.get('lon') || undefined,
-		municipality: form.get('municipality') || null
-	});
-	if (picked.success) return picked.data;
-	return getMaps(getDb()).geocode(address);
-}
-
-const notFound = () =>
-	getMaps(getDb()).live
-		? 'Adresu se nepodařilo najít, zkus ji upřesnit.'
-		: 'Mapy.com nejsou na serveru nastavené (MAPY_API_KEY), adresu nejde vyhledat.';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireApproved(locals.user);
@@ -73,8 +50,8 @@ export const actions: Actions = {
 		const address = String(form.get('address') ?? '').trim();
 		if (!address) return fail(400, { homeError: 'Zadej adresu.' });
 		if (address.length > 300) return fail(400, { homeError: 'Adresa je moc dlouhá.' });
-		const found = await locate(form, address);
-		if (!found) return fail(400, { homeError: notFound() });
+		const found = await locate(getDb(), form, address);
+		if (!found) return fail(400, { homeError: addressNotFound(getDb()) });
 		await getDb().transaction(async (tx) => {
 			await tx
 				.update(appUser)
@@ -100,8 +77,8 @@ export const actions: Actions = {
 		const address = String(form.get('address') ?? '').trim();
 		if (!label || !address) return fail(400, { placeError: 'Vyplň název i adresu.' });
 		if (address.length > 300) return fail(400, { placeError: 'Adresa je moc dlouhá.' });
-		const found = await locate(form, address);
-		if (!found) return fail(400, { placeError: notFound() });
+		const found = await locate(getDb(), form, address);
+		if (!found) return fail(400, { placeError: addressNotFound(getDb()) });
 		const values = {
 			userId: user.id,
 			label,

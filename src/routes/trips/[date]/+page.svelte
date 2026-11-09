@@ -98,6 +98,23 @@
 		)
 	);
 
+	// hall whose position is being corrected, with the address typed for it
+	let fixing = $state<number | null>(null);
+	let fixAddress = $state('');
+	let fixPoint = $state<Point | null>(null);
+
+	function startFix(v: PageProps['data']['venues'][number]) {
+		fixing = v.id;
+		fixAddress = v.fixAddress ?? v.address;
+		fixPoint = null;
+	}
+
+	const sources = {
+		fix: 'opravená ručně',
+		cbf: 'GPS z ČBF',
+		address: 'ČBF ji nemá, hledá se podle adresy'
+	} as const;
+
 	const a = $derived(data.allowance);
 	const legRows = $derived(
 		(data.trip?.legs ?? []).map((leg, i) => ({
@@ -152,175 +169,280 @@
 	{/if}
 
 	<div class="grid gap-6 lg:grid-cols-[1fr_22rem]">
-		<form
-			method="POST"
-			action="?/save"
-			use:enhance={enhanced}
-			class="space-y-5 rounded-lg border border-line bg-surface p-4"
-		>
-			<fieldset>
-				<legend class="text-sm font-semibold">1. Jak jsi jel?</legend>
-				<div class="mt-2 grid gap-2 sm:grid-cols-2">
-					{#each modes as m (m.key)}
-						<label
-							class={[
-								'flex cursor-pointer gap-2 rounded-md border px-3 py-2 text-sm',
-								mode === m.key ? 'border-accent' : 'border-line'
-							]}
-						>
-							<input type="radio" name="mode" value={m.key} bind:group={mode} class="mt-0.5" />
-							<span>{m.label}<span class="block text-xs text-muted">{m.hint}</span></span>
-						</label>
-					{/each}
-				</div>
-			</fieldset>
-
-			{#if mode !== 'none'}
+		<div class="space-y-6">
+			<form
+				method="POST"
+				action="?/save"
+				use:enhance={enhanced}
+				class="space-y-5 rounded-lg border border-line bg-surface p-4"
+			>
 				<fieldset>
-					<legend class="text-sm font-semibold">2. Trasa</legend>
-					<p class="mt-1 text-xs text-muted">
-						Haly bereme ze zápasů. Přidej, kde jsi kolegu nabral a kde vysadil; mezi nabráním a
-						vysazením se počítá sazba s kolegou.
-					</p>
-					<ol class="mt-3 space-y-2">
-						{#each stops as s, i (s.key)}
-							<li class="rounded-md border border-line px-3 py-2">
-								{#if s.kind === 'home' || s.kind === 'venue'}
-									<p class="text-sm">
-										<span class="font-medium">{s.kind === 'home' ? 'Domov' : s.label}</span>
-										<span class="block text-xs text-muted">{s.address ?? ''}</span>
-									</p>
-								{:else}
-									<div class="flex flex-wrap items-center justify-between gap-2">
-										<p class="text-sm font-medium">
-											{s.kind === 'pickup' ? '↑ Nabírám kolegu' : '↓ Vysazuji kolegu'}
-										</p>
-										<div class="flex gap-1 text-xs">
-											<button
-												type="button"
-												class="rounded border border-line px-2 py-0.5"
-												onclick={() => move(i, -1)}
-												aria-label="Posunout výš">↑</button
-											>
-											<button
-												type="button"
-												class="rounded border border-line px-2 py-0.5"
-												onclick={() => move(i, 1)}
-												aria-label="Posunout níž">↓</button
-											>
-											<button
-												type="button"
-												class="rounded border border-line px-2 py-0.5 hover:text-danger"
-												onclick={() => stops.splice(i, 1)}>Odebrat</button
-											>
-										</div>
-									</div>
-									<div class="mt-2 grid gap-2 sm:grid-cols-2">
-										<label class="text-xs text-muted">
-											Kolega
-											<input
-												bind:value={s.colleague}
-												list="colleagues"
-												class="mt-0.5 block w-full rounded-md border-line bg-surface text-sm text-ink"
-											/>
-										</label>
-										{#if data.places.length}
-											<label class="text-xs text-muted">
-												Uložené místo
-												<select
-													class="mt-0.5 block w-full rounded-md border-line bg-surface text-sm text-ink"
-													onchange={(e) => usePlace(s, e.currentTarget.value)}
-												>
-													<option value="">—</option>
-													{#each data.places as p (p.id)}
-														<option value={String(p.id)}>{p.label}</option>
-													{/each}
-												</select>
-											</label>
-										{/if}
-									</div>
-									<div class="mt-2">
-										<label for={`addr-${s.key}`} class="text-xs text-muted">Adresa</label>
-										<AddressInput
-											id={`addr-${s.key}`}
-											bind:address={s.address}
-											bind:point={s.point}
-										/>
-									</div>
-								{/if}
-							</li>
+					<legend class="text-sm font-semibold">1. Jak jsi jel?</legend>
+					<div class="mt-2 grid gap-2 sm:grid-cols-2">
+						{#each modes as m (m.key)}
+							<label
+								class={[
+									'flex cursor-pointer gap-2 rounded-md border px-3 py-2 text-sm',
+									mode === m.key ? 'border-accent' : 'border-line'
+								]}
+							>
+								<input type="radio" name="mode" value={m.key} bind:group={mode} class="mt-0.5" />
+								<span>{m.label}<span class="block text-xs text-muted">{m.hint}</span></span>
+							</label>
 						{/each}
-					</ol>
-					<datalist id="colleagues">
-						{#each data.colleagues as c (c)}<option value={c}></option>{/each}
-					</datalist>
-					<div class="mt-3 flex flex-wrap gap-2">
-						<button
-							type="button"
-							onclick={() => add('pickup')}
-							class="rounded-md border border-line px-3 py-1.5 text-sm hover:border-accent"
-							>+ Nabírám kolegu</button
-						>
-						<button
-							type="button"
-							onclick={() => add('dropoff')}
-							class="rounded-md border border-line px-3 py-1.5 text-sm hover:border-accent"
-							>+ Vysazuji kolegu</button
-						>
 					</div>
-					<label class="mt-3 flex items-center gap-2 text-xs text-ink-2">
-						<input type="checkbox" bind:checked={savePlaces} />
-						Uložit adresy kolegů pro příště
-					</label>
 				</fieldset>
-			{/if}
 
-			<fieldset class="grid gap-3 sm:grid-cols-2">
-				<legend class="text-sm font-semibold">3. Ostatní výdaje</legend>
-				{#if mode === 'public'}
+				{#if mode !== 'none'}
+					<fieldset>
+						<legend class="text-sm font-semibold">2. Trasa</legend>
+						<p class="mt-1 text-xs text-muted">
+							Haly bereme ze zápasů. Přidej, kde jsi kolegu nabral a kde vysadil; mezi nabráním a
+							vysazením se počítá sazba s kolegou.
+						</p>
+						<ol class="mt-3 space-y-2">
+							{#each stops as s, i (s.key)}
+								<li class="rounded-md border border-line px-3 py-2">
+									{#if s.kind === 'home' || s.kind === 'venue'}
+										<p class="text-sm">
+											<span class="font-medium">{s.kind === 'home' ? 'Domov' : s.label}</span>
+											<span class="block text-xs text-muted">{s.address ?? ''}</span>
+										</p>
+									{:else}
+										<div class="flex flex-wrap items-center justify-between gap-2">
+											<p class="text-sm font-medium">
+												{s.kind === 'pickup' ? '↑ Nabírám kolegu' : '↓ Vysazuji kolegu'}
+											</p>
+											<div class="flex gap-1 text-xs">
+												<button
+													type="button"
+													class="rounded border border-line px-2 py-0.5"
+													onclick={() => move(i, -1)}
+													aria-label="Posunout výš">↑</button
+												>
+												<button
+													type="button"
+													class="rounded border border-line px-2 py-0.5"
+													onclick={() => move(i, 1)}
+													aria-label="Posunout níž">↓</button
+												>
+												<button
+													type="button"
+													class="rounded border border-line px-2 py-0.5 hover:text-danger"
+													onclick={() => stops.splice(i, 1)}>Odebrat</button
+												>
+											</div>
+										</div>
+										<div class="mt-2 grid gap-2 sm:grid-cols-2">
+											<label class="text-xs text-muted">
+												Kolega
+												<input
+													bind:value={s.colleague}
+													list="colleagues"
+													class="mt-0.5 block w-full rounded-md border-line bg-surface text-sm text-ink"
+												/>
+											</label>
+											{#if data.places.length}
+												<label class="text-xs text-muted">
+													Uložené místo
+													<select
+														class="mt-0.5 block w-full rounded-md border-line bg-surface text-sm text-ink"
+														onchange={(e) => usePlace(s, e.currentTarget.value)}
+													>
+														<option value="">—</option>
+														{#each data.places as p (p.id)}
+															<option value={String(p.id)}>{p.label}</option>
+														{/each}
+													</select>
+												</label>
+											{/if}
+										</div>
+										<div class="mt-2">
+											<label for={`addr-${s.key}`} class="text-xs text-muted">Adresa</label>
+											<AddressInput
+												id={`addr-${s.key}`}
+												bind:address={s.address}
+												bind:point={s.point}
+											/>
+										</div>
+									{/if}
+								</li>
+							{/each}
+						</ol>
+						<datalist id="colleagues">
+							{#each data.colleagues as c (c)}<option value={c}></option>{/each}
+						</datalist>
+						<div class="mt-3 flex flex-wrap gap-2">
+							<button
+								type="button"
+								onclick={() => add('pickup')}
+								class="rounded-md border border-line px-3 py-1.5 text-sm hover:border-accent"
+								>+ Nabírám kolegu</button
+							>
+							<button
+								type="button"
+								onclick={() => add('dropoff')}
+								class="rounded-md border border-line px-3 py-1.5 text-sm hover:border-accent"
+								>+ Vysazuji kolegu</button
+							>
+						</div>
+						<label class="mt-3 flex items-center gap-2 text-xs text-ink-2">
+							<input type="checkbox" bind:checked={savePlaces} />
+							Uložit adresy kolegů pro příště
+						</label>
+					</fieldset>
+				{/if}
+
+				<fieldset class="grid gap-3 sm:grid-cols-2">
+					<legend class="text-sm font-semibold">3. Ostatní výdaje</legend>
+					{#if mode === 'public'}
+						<label class="text-xs text-muted">
+							Jízdenky celkem (Kč)
+							<input
+								name="ticketCost"
+								bind:value={ticketCost}
+								inputmode="numeric"
+								class="mt-0.5 block w-full rounded-md border-line bg-surface text-sm text-ink"
+							/>
+						</label>
+					{/if}
 					<label class="text-xs text-muted">
-						Jízdenky celkem (Kč)
+						Parkovné a jiné doklady (Kč)
 						<input
-							name="ticketCost"
-							bind:value={ticketCost}
+							name="extraCost"
+							bind:value={extraCost}
 							inputmode="numeric"
 							class="mt-0.5 block w-full rounded-md border-line bg-surface text-sm text-ink"
 						/>
 					</label>
-				{/if}
-				<label class="text-xs text-muted">
-					Parkovné a jiné doklady (Kč)
-					<input
-						name="extraCost"
-						bind:value={extraCost}
-						inputmode="numeric"
-						class="mt-0.5 block w-full rounded-md border-line bg-surface text-sm text-ink"
-					/>
-				</label>
-				<label class="text-xs text-muted sm:col-span-2">
-					Poznámka
-					<input
-						name="note"
-						bind:value={note}
-						maxlength="500"
-						class="mt-0.5 block w-full rounded-md border-line bg-surface text-sm text-ink"
-					/>
-				</label>
-			</fieldset>
+					<label class="text-xs text-muted sm:col-span-2">
+						Poznámka
+						<input
+							name="note"
+							bind:value={note}
+							maxlength="500"
+							class="mt-0.5 block w-full rounded-md border-line bg-surface text-sm text-ink"
+						/>
+					</label>
+				</fieldset>
 
-			<input type="hidden" name="stops" value={serialized} />
-			<input type="hidden" name="savePlaces" value={savePlaces ? 'on' : ''} />
-			{#if form?.error}<p class="text-sm text-danger" role="alert">{form.error}</p>{/if}
-			<div class="flex flex-wrap items-center gap-3">
-				<button
-					disabled={busy || (!data.hasHome && mode !== 'none')}
-					class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
-				>
-					{busy ? 'Počítám trasu…' : 'Uložit a spočítat'}
-				</button>
-				{#if form?.saved}<span class="text-sm text-ink-2" role="status">Uloženo.</span>{/if}
-			</div>
-		</form>
+				<input type="hidden" name="stops" value={serialized} />
+				<input type="hidden" name="savePlaces" value={savePlaces ? 'on' : ''} />
+				{#if form?.error}<p class="text-sm text-danger" role="alert">{form.error}</p>{/if}
+				<div class="flex flex-wrap items-center gap-3">
+					<button
+						disabled={busy || (!data.hasHome && mode !== 'none')}
+						class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
+					>
+						{busy ? 'Počítám trasu…' : 'Uložit a spočítat'}
+					</button>
+					{#if form?.saved}<span class="text-sm text-ink-2" role="status">Uloženo.</span>{/if}
+				</div>
+			</form>
+
+			{#if data.venues.length > 0}
+				<section class="rounded-lg border border-line bg-surface p-4">
+					<h2 class="text-sm font-semibold">Poloha hal</h2>
+					<p class="mt-1 text-xs text-muted">
+						Když hala na mapě nesedí, oprav ji adresou. Oprava platí pro všechny rozhodčí a cesta
+						tohoto dne se hned přepočítá.
+					</p>
+					<ul class="mt-3 space-y-3">
+						{#each data.venues as v (v.id)}
+							<li class="rounded-md border border-line px-3 py-2">
+								<p class="text-sm">
+									<span class="font-medium">{v.name}</span>
+									{#if v.address}<span class="block text-xs text-muted">{v.address}</span>{/if}
+								</p>
+								<p class="mt-1 text-xs text-ink-2">
+									Poloha: {sources[v.source]}{v.fixAddress ? ` (${v.fixAddress})` : ''}
+									{#if v.mapUrl}
+										·
+										<!-- eslint-disable svelte/no-navigation-without-resolve -- external mapy.com link -->
+										<a
+											href={v.mapUrl}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="text-accent hover:underline">ukázat na mapě</a
+										>
+										<!-- eslint-enable svelte/no-navigation-without-resolve -->
+									{/if}
+								</p>
+								{#if fixing === v.id}
+									<form
+										method="POST"
+										action="?/fixVenue"
+										use:enhance={() => {
+											busy = true;
+											return async ({ result, update }) => {
+												await update({ reset: false });
+												busy = false;
+												if (result.type === 'success') fixing = null;
+											};
+										}}
+										class="mt-2 space-y-2"
+									>
+										<input type="hidden" name="venueId" value={v.id} />
+										<label for={`fix-${v.id}`} class="text-xs text-muted">Správná adresa haly</label
+										>
+										<AddressInput
+											id={`fix-${v.id}`}
+											bind:address={fixAddress}
+											bind:point={fixPoint}
+											required
+										/>
+										<input type="hidden" name="address" value={fixAddress} />
+										<input type="hidden" name="lat" value={fixPoint?.lat ?? ''} />
+										<input type="hidden" name="lon" value={fixPoint?.lon ?? ''} />
+										<div class="flex flex-wrap gap-2">
+											<button
+												disabled={busy}
+												class="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
+												>{busy ? 'Počítám trasu…' : 'Uložit polohu'}</button
+											>
+											<button
+												type="button"
+												class="rounded-md border border-line px-3 py-1.5 text-sm"
+												onclick={() => (fixing = null)}>Zrušit</button
+											>
+										</div>
+									</form>
+								{:else}
+									<div class="mt-2 flex flex-wrap gap-2">
+										<button
+											type="button"
+											class="rounded-md border border-line px-3 py-1 text-xs hover:border-accent"
+											onclick={() => startFix(v)}>Opravit polohu</button
+										>
+										{#if v.fixAddress}
+											<form method="POST" action="?/unfixVenue" use:enhance={enhanced}>
+												<input type="hidden" name="venueId" value={v.id} />
+												<button
+													class="rounded-md border border-line px-3 py-1 text-xs hover:border-danger"
+													>Vrátit polohu z ČBF</button
+												>
+											</form>
+										{/if}
+									</div>
+								{/if}
+								{#if form?.venueError && form.venueId === v.id}
+									<p class="mt-2 text-xs text-danger" role="alert">{form.venueError}</p>
+								{/if}
+								{#if form?.venueFixed === v.id}
+									<p class="mt-2 text-xs text-ink-2" role="status">
+										{form.error
+											? `Poloha uložena, ale cestu se nepodařilo přepočítat: ${form.error}`
+											: 'reverted' in form && form.reverted
+												? 'Vrácena poloha z ČBF, cesta přepočítaná.'
+												: 'Poloha uložena a cesta přepočítaná.'}
+									</p>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				</section>
+			{/if}
+		</div>
 
 		<aside class="space-y-4">
 			<section class="rounded-lg border border-line bg-surface p-4">

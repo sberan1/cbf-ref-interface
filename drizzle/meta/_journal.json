@@ -43,6 +43,13 @@
       "when": 1794208931881,
       "tag": "0005_venue_zero_coordinates",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794209198548,
+      "tag": "0006_venue_fix",
+      "breakpoints": true
     }
   ]
 }

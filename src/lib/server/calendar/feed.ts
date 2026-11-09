@@ -5,11 +5,12 @@
  * the result and the live / video links.
  */
 import { randomBytes } from 'node:crypto';
-import { and, asc, eq, gte, inArray } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { formatKc } from '../../format';
 import type { DbOrTx } from '../db/client';
 import {
 	appUser,
+	appVenueFix,
 	category,
 	competition,
 	game,
@@ -151,8 +152,9 @@ export async function calendarGames(
 			street: venue.street,
 			zip: venue.zip,
 			city: venue.city,
-			lat: venue.lat,
-			lon: venue.lon,
+			// a hand-corrected hall position wins over ČBF's GPS (PDR 0003)
+			lat: sql<number | null>`coalesce(${appVenueFix.lat}, ${venue.lat})`,
+			lon: sql<number | null>`coalesce(${appVenueFix.lon}, ${venue.lon})`,
 			urlLive: game.urlLive,
 			videoUrl: game.videoUrl,
 			isTv: game.isTv,
@@ -164,6 +166,7 @@ export async function calendarGames(
 		.leftJoin(category, eq(category.id, competition.categoryId))
 		.leftJoin(phase, eq(phase.id, game.phaseId))
 		.leftJoin(venue, eq(venue.id, game.venueId))
+		.leftJoin(appVenueFix, eq(appVenueFix.venueId, venue.id))
 		.where(and(inArray(gameOfficial.officialId, officialIds), gte(game.scheduledDate, from)))
 		.orderBy(asc(game.scheduledDate), asc(game.scheduledTime));
 	if (rows.length === 0) return [];

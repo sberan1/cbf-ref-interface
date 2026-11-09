@@ -1,7 +1,8 @@
 /**
  * Application layer: accounts signed in with Google and paired with a ČBF official after an
  * admin's approval (ADR 0008), their sessions (ADR 0006), the travel data behind the
- * allowances (PDR 0003), games entered by hand (PDR 0004) and the calendar feed (PDR 0006).
+ * allowances with corrected hall positions (PDR 0003), games entered by hand (PDR 0004) and the
+ * calendar feed (PDR 0006).
  */
 import {
 	boolean,
@@ -17,7 +18,7 @@ import {
 	timestamp,
 	unique
 } from 'drizzle-orm/pg-core';
-import { official } from './cbf';
+import { official, venue } from './cbf';
 
 export const appSchema = pgSchema('app');
 
@@ -167,6 +168,23 @@ export const appOwnGame = appSchema.table(
 	},
 	(t) => [index('own_game_user_date_idx').on(t.userId, t.date)]
 );
+
+/**
+ * Hand-corrected position of a ČBF hall (PDR 0003), shared by all users: it wins over the GPS
+ * from ČBF, which is missing or wrong for some halls. ČBF syncs never touch it.
+ */
+export const appVenueFix = appSchema.table('venue_fix', {
+	venueId: integer('venue_id')
+		.primaryKey()
+		.references(() => venue.id, { onDelete: 'cascade' }),
+	/** the address the position was looked up from */
+	address: text('address').notNull(),
+	lat: doublePrecision('lat').notNull(),
+	lon: doublePrecision('lon').notNull(),
+	/** who corrected it last */
+	userId: integer('user_id').references(() => appUser.id, { onDelete: 'set null' }),
+	updatedAt: tstz('updated_at').notNull().defaultNow()
+});
 
 /** Geocoding results (Mapy.com), shared by all users. */
 export const appGeoCache = appSchema.table('geo_cache', {

@@ -10,7 +10,7 @@ import {
 import { easterSunday, holidayName, isWorkday } from './holidays';
 import { mapyProvider, straightLineRoute } from './mapy';
 import { mealAmount, mealFor, mileageFor } from './rates';
-import { defaultStops, venueStops, type GameDay } from './trips';
+import { defaultStops, venueStops, withServerStops, type GameDay } from './trips';
 
 const km = (n: number, passengers = 0, minutes = n): TripLeg => ({
 	meters: n * 1000,
@@ -276,6 +276,77 @@ describe('trip stops', () => {
 		const home = { address: 'Doma 1, Praha', lat: 50, lon: 14, municipality: 'Praha' };
 		const stops: TripStop[] = defaultStops(day([venue(1, 'Hala A', 50.1)]), home);
 		expect(stops.map((s) => s.kind)).toEqual(['home', 'venue', 'home']);
+	});
+});
+
+describe('withServerStops', () => {
+	const home = { address: 'Domov 1, Praha', lat: 50.09, lon: 14.45, municipality: 'Praha' };
+	const hall = (id: number, lat: number | null) => ({
+		id,
+		name: `Hala ${id}`,
+		street: null,
+		city: 'Chomutov',
+		lat,
+		lon: lat === null ? null : 13.4
+	});
+	const day = (halls: ReturnType<typeof hall>[]): GameDay => ({
+		date: '2026-11-07',
+		seasonYear: 2026,
+		games: halls.map((v, i) => ({
+			...game({ gameId: i + 1 }),
+			startsAt: null,
+			scheduledTime: null,
+			seasonYear: 2026,
+			homeTeam: null,
+			awayTeam: null,
+			venue: v,
+			colleagues: []
+		}))
+	});
+
+	it('takes home and halls from the server and keeps pickups', () => {
+		const stored: TripStop[] = [
+			{ kind: 'home', label: 'Domov', address: 'stará', lat: 1, lon: 1 },
+			{
+				kind: 'pickup',
+				label: 'Vyzvednutí',
+				colleague: 'Novák',
+				address: 'Kladno',
+				lat: 50.1,
+				lon: 14.1
+			},
+			{
+				kind: 'venue',
+				label: 'Hala 1, Chomutov',
+				address: 'Chomutov',
+				lat: 0,
+				lon: 0,
+				gameIds: [1]
+			},
+			{ kind: 'home', label: 'Domov', address: 'stará', lat: 1, lon: 1 }
+		];
+		const stops = withServerStops(stored, day([hall(1, 50.46)]), home);
+		expect(stops.map((s) => [s.kind, s.lat])).toEqual([
+			['home', 50.09],
+			['pickup', 50.1],
+			['venue', 50.46],
+			['home', 50.09]
+		]);
+	});
+
+	it('adds halls the stored trip did not have and closes the trip at home', () => {
+		const stops = withServerStops(
+			[{ kind: 'home', label: 'Domov', address: null, lat: null, lon: null }],
+			day([hall(1, null), hall(2, 50.46)]),
+			home
+		);
+		expect(stops.map((s) => [s.kind, s.label])).toEqual([
+			['home', 'Domov'],
+			['venue', 'Hala 1, Chomutov'],
+			['venue', 'Hala 2, Chomutov'],
+			['home', 'Domov']
+		]);
+		expect(stops[1].lat).toBeNull();
 	});
 });
 
