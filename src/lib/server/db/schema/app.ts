@@ -157,6 +157,8 @@ export const appOwnGame = appSchema.table(
 			.notNull()
 			.references(() => appUser.id, { onDelete: 'cascade' }),
 		date: date('date', { mode: 'string' }).notNull(),
+		/** local (Europe/Prague) start, HH:MM; null = all day / not known */
+		time: text('start_time'),
 		title: text('title').notNull(),
 		role: text('role').$type<OwnGameRole>().notNull(),
 		games: integer('games').notNull().default(1),

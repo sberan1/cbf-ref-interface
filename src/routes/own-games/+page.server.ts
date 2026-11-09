@@ -24,7 +24,7 @@ export const actions: Actions = {
 		const user = requireApproved(locals.user);
 		const form = await request.formData();
 		const values = Object.fromEntries(
-			['date', 'title', 'role', 'games', 'fee', 'place', 'note'].map((k) => [
+			['date', 'time', 'title', 'role', 'games', 'fee', 'place', 'note'].map((k) => [
 				k,
 				String(form.get(k) ?? '')
 			])

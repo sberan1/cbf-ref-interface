@@ -7,7 +7,7 @@ import {
 	summarizeEarnings
 } from '#lib/server/referee/earnings.ts';
 import { feeView } from '#lib/server/referee/fee-view.ts';
-import { listOwnGames } from '#lib/server/referee/own-games.ts';
+import { listOwnGames, ownGameRows } from '#lib/server/referee/own-games.ts';
 import {
 	seasonAreaOptions,
 	competitionBreakdown,
@@ -78,7 +78,21 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	const index = feeIndex(fees);
 	const withFees = (games: GameRow[]) =>
-		games.map((game) => ({ ...game, fee: feeView(index.get(`${game.id}:${game.roleCode}`)) }));
+		games.map((game) => ({
+			...game,
+			kind: 'cbf' as const,
+			fee: feeView(index.get(`${game.id}:${game.roleCode}`))
+		}));
+	// own games join the ČBF delegations in the lists, so none of them is forgotten
+	const ownRows = ownGameRows(ownGames);
+	const at = (g: { startsAt: Date | null; scheduledDate: string | null }) =>
+		g.startsAt?.getTime() ?? Date.parse(`${g.scheduledDate}T00:00:00Z`);
+	const nextGames = [...withFees(upcoming), ...ownRows.filter((g) => g.scheduledDate >= today)]
+		.sort((a, b) => at(a) - at(b))
+		.slice(0, 8);
+	const lastGames = [...withFees(recent), ...ownRows.filter((g) => g.scheduledDate < today)]
+		.sort((a, b) => at(b) - at(a))
+		.slice(0, 8);
 
 	return {
 		granularity,
@@ -86,8 +100,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		currentSeasonYear,
 		summary,
 		timeline: timeline ?? earningsTimeline(fees, granularity, { now, currentSeasonYear }, own),
-		upcoming: withFees(upcoming),
-		recent: withFees(recent),
+		upcoming: nextGames,
+		recent: lastGames,
+		ownUpcoming: ownGames.filter((g) => g.date >= today).reduce((n, g) => n + g.games, 0),
 		competitions,
 		colleagues,
 		teams,

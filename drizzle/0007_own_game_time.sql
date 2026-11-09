@@ -1,0 +1,1 @@
+ALTER TABLE "app"."own_game" ADD COLUMN "start_time" text;

@@ -5,6 +5,7 @@
  */
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { pragueToUtc } from '../cbf/parse/coerce';
 import type { DbOrTx } from '../db/client';
 import { appOwnGame, ownGameRoles, type OwnGameRole } from '../db/schema';
 
@@ -28,6 +29,11 @@ export const ownGameSchema = z.object({
 		.string()
 		.regex(/^\d{4}-\d{2}-\d{2}$/, 'Zadej datum.')
 		.refine((v) => !Number.isNaN(Date.parse(`${v}T00:00:00Z`)), 'Neplatné datum.'),
+	/** start time, so the calendar and the overview show it; empty = not known */
+	time: z
+		.union([z.literal(''), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Neplatný čas.')])
+		.optional()
+		.transform((v) => v || null),
 	title: z.string().trim().min(1, 'Zadej, o co šlo (např. přátelák nebo turnaj).').max(200),
 	role: z.enum(ownGameRoles),
 	games: z.coerce.number().int().min(1).max(50),
@@ -48,6 +54,7 @@ export async function listOwnGames(db: DbOrTx, userId: number): Promise<OwnGame[
 		.select({
 			id: appOwnGame.id,
 			date: appOwnGame.date,
+			time: appOwnGame.time,
 			title: appOwnGame.title,
 			role: appOwnGame.role,
 			games: appOwnGame.games,
@@ -81,4 +88,30 @@ export async function saveOwnGame(
 
 export async function deleteOwnGame(db: DbOrTx, userId: number, id: number) {
 	await db.delete(appOwnGame).where(and(eq(appOwnGame.id, id), eq(appOwnGame.userId, userId)));
+}
+
+/** Own games as rows of the game lists on the dashboard, next to the ČBF delegations. */
+export function ownGameRows(games: OwnGame[]) {
+	return games.map((g) => ({
+		kind: 'own' as const,
+		id: g.id,
+		startsAt: pragueToUtc(g.date, g.time),
+		scheduledDate: g.date,
+		// colour of the role dot: commissioner, or referee for the rest
+		role: (g.role === 'commissioner' ? 'commissioner' : 'referee') as 'referee' | 'commissioner',
+		roleName: ownGameRoleNames[g.role],
+		title: g.title,
+		games: g.games,
+		note: g.note,
+		competitionName: null,
+		category: null,
+		homeTeam: null,
+		awayTeam: null,
+		homeScore: null,
+		awayScore: null,
+		venue: g.place,
+		city: null,
+		colleagues: null,
+		fee: { amount: g.fee, estimate: false, detail: 'vlastní zápas' }
+	}));
 }

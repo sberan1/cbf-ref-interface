@@ -88,6 +88,7 @@ describe('payoutDays', () => {
 			{
 				id: 9,
 				date: '2026-10-24',
+				time: null,
 				title: 'Turnaj U11',
 				role: 'referee' as const,
 				games: 3,
@@ -98,6 +99,7 @@ describe('payoutDays', () => {
 			{
 				id: 8,
 				date: '2026-10-11',
+				time: null,
 				title: 'Přátelák',
 				role: 'referee' as const,
 				games: 1,

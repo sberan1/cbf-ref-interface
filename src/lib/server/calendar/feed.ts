@@ -7,6 +7,7 @@
 import { randomBytes } from 'node:crypto';
 import { and, asc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { formatKc } from '../../format';
+import { pragueToUtc } from '../cbf/parse/coerce';
 import type { DbOrTx } from '../db/client';
 import {
 	appUser,
@@ -337,13 +338,21 @@ export function ownGameEvent(o: OwnGame): IcsEvent {
 		`Odměna: ${o.fee === null ? 'neznámá' : formatKc(o.fee)}`,
 		o.note ? `Poznámka: ${o.note}` : null
 	].filter((l): l is string => l !== null);
-	return {
+	const event: IcsEvent = {
 		uid: `own-${o.id}@${UID_DOMAIN}`,
-		date: o.date,
 		summary: o.title,
 		description: lines.join('\n'),
 		location: o.place ?? undefined
 	};
+	const start = pragueToUtc(o.date, o.time);
+	if (start) {
+		// a tournament takes longer: two hours a game, at most a long day
+		event.start = start;
+		event.end = new Date(start.getTime() + Math.min(o.games, 5) * GAME_MINUTES * 60_000);
+	} else {
+		event.date = o.date;
+	}
+	return event;
 }
 
 /** Events of the feed: ČBF delegations, then own games. */

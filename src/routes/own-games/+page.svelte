@@ -18,6 +18,7 @@
 	type Draft = {
 		id: number | null;
 		date: string;
+		time: string;
 		title: string;
 		role: string;
 		games: string;
@@ -28,6 +29,7 @@
 	const empty = (): Draft => ({
 		id: null,
 		date: data.today,
+		time: '',
 		title: '',
 		role: 'referee',
 		games: '1',
@@ -41,6 +43,7 @@
 		draft = {
 			id: g.id,
 			date: g.date,
+			time: g.time ?? '',
 			title: g.title,
 			role: g.role,
 			games: String(g.games),
@@ -51,14 +54,18 @@
 		document.getElementById('own-date')?.focus();
 	}
 
-	// totals per calendar year of the entries listed
+	// totals per calendar year of the entries listed; games still to come shown apart
+	const sum = (games: typeof data.games) => ({
+		games: games.reduce((n, g) => n + g.games, 0),
+		fee: games.reduce((n, g) => n + (g.fee ?? 0), 0)
+	});
 	const years = $derived(
 		[...new Set(data.games.map((g) => g.date.slice(0, 4)))].map((y) => {
-			const games = data.games.filter((g) => g.date.startsWith(y) && g.date <= data.today);
+			const games = data.games.filter((g) => g.date.startsWith(y));
 			return {
 				year: y,
-				games: games.reduce((n, g) => n + g.games, 0),
-				fee: games.reduce((n, g) => n + (g.fee ?? 0), 0)
+				...sum(games),
+				upcoming: sum(games.filter((g) => g.date > data.today))
 			};
 		})
 	);
@@ -74,8 +81,9 @@
 	<div>
 		<h1 class="text-2xl font-semibold tracking-tight">Vlastní zápasy</h1>
 		<p class="mt-1 text-sm text-ink-2">
-			Přáteláky, turnaje a další akce mimo systém ČBF. Odměny se připočítají k odměnám na přehledu,
-			do součtů za sezónu i kalendářní rok a do CSV pro daňové přiznání.
+			Přáteláky, turnaje a další akce mimo systém ČBF. Zobrazí se mezi zápasy na přehledu, ve
+			Vyúčtování a v kalendáři (s časem začátku jako běžná událost). Odměny se připočítají k odměnám
+			na přehledu, do součtů za sezónu i kalendářní rok a do CSV pro daňové přiznání.
 		</p>
 	</div>
 
@@ -92,17 +100,23 @@
 			class="mt-3 grid gap-3 sm:grid-cols-2"
 		>
 			{#if draft.id !== null}<input type="hidden" name="id" value={draft.id} />{/if}
-			<label class="grid gap-1 text-xs text-muted">
-				Datum
-				<input
-					id="own-date"
-					name="date"
-					type="date"
-					required
-					bind:value={draft.date}
-					class={input}
-				/>
-			</label>
+			<div class="grid grid-cols-[1fr_8rem] gap-2">
+				<label class="grid gap-1 text-xs text-muted">
+					Datum
+					<input
+						id="own-date"
+						name="date"
+						type="date"
+						required
+						bind:value={draft.date}
+						class={input}
+					/>
+				</label>
+				<label class="grid gap-1 text-xs text-muted">
+					Začátek
+					<input name="time" type="time" bind:value={draft.time} class={input} />
+				</label>
+			</div>
 			<label class="grid gap-1 text-xs text-muted">
 				Role
 				<select name="role" bind:value={draft.role} class={input}>
@@ -175,14 +189,18 @@
 			<h2 class="border-b border-line px-4 py-3 text-sm font-semibold">Zápasy</h2>
 			<p class="border-b border-line px-4 py-2 text-xs text-ink-2">
 				{#each years as y, i (y.year)}{i > 0 ? ' · ' : ''}{y.year}: {gamesLabel(y.games)},
-					{formatKc(y.fee)}{/each}
+					{formatKc(y.fee)}{y.upcoming.games
+						? ` (z toho nadcházející ${gamesLabel(y.upcoming.games)}, ${formatKc(y.upcoming.fee)})`
+						: ''}{/each}
 			</p>
 			<ul class="divide-y divide-line text-sm">
 				{#each data.games as g (g.id)}
 					<li class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-2">
 						<div class="min-w-0">
 							<p>
-								<span class="text-ink-2 tabular-nums">{formatDate(g.date)}</span>
+								<span class="text-ink-2 tabular-nums"
+									>{formatDate(g.date)}{g.time ? ` ${g.time}` : ''}</span
+								>
 								<span class="font-medium">{g.title}</span>
 							</p>
 							<p class="text-xs text-muted">
