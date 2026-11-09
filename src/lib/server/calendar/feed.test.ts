@@ -134,6 +134,7 @@ describe('own games', () => {
 	const own: OwnGame = {
 		id: 3,
 		date: '2026-12-28',
+		time: null,
 		title: 'Vánoční turnaj',
 		role: 'referee',
 		games: 4,
@@ -151,6 +152,15 @@ describe('own games', () => {
 			location: 'Hala Folimanka',
 			description: `Vlastní zápas · rozhodčí\nPočet zápasů: 4\nOdměna: ${formatKc(1200)}\nPoznámka: platí pořadatel hotově`
 		});
+	});
+
+	it('are timed events when the start is known, two hours a game', () => {
+		const e = ownGameEvent({ ...own, date: '2026-11-15', time: '17:30', games: 1 });
+		expect(e.date).toBeUndefined();
+		expect(e.start?.toISOString()).toBe('2026-11-15T16:30:00.000Z');
+		expect(e.end?.toISOString()).toBe('2026-11-15T18:30:00.000Z');
+		const tournament = ownGameEvent({ ...own, time: '09:00', games: 8 });
+		expect((tournament.end!.getTime() - tournament.start!.getTime()) / 3_600_000).toBe(10);
 	});
 
 	it('follow the ČBF games in the feed', () => {

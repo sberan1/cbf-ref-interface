@@ -81,7 +81,7 @@
 		{ label: `Sezóna ${seasonName(data.currentSeasonYear)}`, value: s.currentSeason },
 		{ label: 'Jako rozhodčí', value: s.asReferee },
 		{ label: 'Jako komisař', value: s.asCommissioner },
-		{ label: 'Nadcházející delegace', value: s.upcoming },
+		{ label: 'Nadcházející zápasy', value: s.upcoming + data.ownUpcoming },
 		{ label: 'Sezón', value: s.seasons },
 		{ label: 'Soutěží', value: s.competitions }
 	]);
@@ -343,9 +343,9 @@
 
 	<div class="grid gap-6 lg:grid-cols-2">
 		<GameList
-			title="Nejbližší delegace"
+			title="Nejbližší zápasy"
 			games={data.upcoming}
-			empty="Žádné nadcházející delegace. ČBF zveřejňuje rozhodčí často až krátce před zápasem."
+			empty="Žádné nadcházející zápasy. ČBF zveřejňuje rozhodčí často až krátce před zápasem."
 		/>
 		<GameList title="Poslední zápasy" games={data.recent} empty="Žádné odehrané zápasy." />
 	</div>

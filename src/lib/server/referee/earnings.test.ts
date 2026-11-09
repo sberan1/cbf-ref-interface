@@ -32,6 +32,7 @@ const row = (date: string, amount: number, played = true, provenance?: 'assumed'
 const own = (date: string, fee: number | null, games = 1): OwnGame => ({
 	id: 1,
 	date,
+	time: null,
 	title: 'Turnaj U13',
 	role: 'referee',
 	games,
