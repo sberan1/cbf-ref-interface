@@ -344,8 +344,9 @@
 				<section class="rounded-lg border border-line bg-surface p-4">
 					<h2 class="text-sm font-semibold">Poloha hal</h2>
 					<p class="mt-1 text-xs text-muted">
-						Když hala na mapě nesedí, oprav ji adresou. Oprava platí pro všechny rozhodčí a cesta
-						tohoto dne se hned přepočítá.
+						{data.canFixVenues
+							? 'Když hala na mapě nesedí, oprav ji adresou. Oprava platí pro všechny rozhodčí a cesta tohoto dne se hned přepočítá.'
+							: 'Když hala na mapě nesedí, dej vědět správci. Polohu opraví pro všechny.'}
 					</p>
 					<ul class="mt-3 space-y-3">
 						{#each data.venues as v (v.id)}
@@ -368,7 +369,7 @@
 										<!-- eslint-enable svelte/no-navigation-without-resolve -->
 									{/if}
 								</p>
-								{#if fixing === v.id}
+								{#if data.canFixVenues && fixing === v.id}
 									<form
 										method="POST"
 										action="?/fixVenue"
@@ -407,7 +408,7 @@
 											>
 										</div>
 									</form>
-								{:else}
+								{:else if data.canFixVenues}
 									<div class="mt-2 flex flex-wrap gap-2">
 										<button
 											type="button"

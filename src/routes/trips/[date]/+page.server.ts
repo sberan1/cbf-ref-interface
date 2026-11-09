@@ -120,6 +120,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		colleagues: [...new Set(day.games.flatMap((g) => g.colleagues))],
 		hasHome: home !== null,
 		mapsLive: getMaps(db).live,
+		// hall positions are shared by everyone, so only admins correct them
+		canFixVenues: user.role === 'admin',
 		trip: trip
 			? {
 					status: trip.status,
@@ -185,6 +187,8 @@ async function recompute(
 	}
 	return null;
 }
+
+const adminOnly = 'Polohu haly může opravit jen správce.';
 
 const emptyToUndefined = (v: FormDataEntryValue | null) => (v === null || v === '' ? undefined : v);
 
@@ -296,11 +300,12 @@ export const actions: Actions = {
 		return { saved: true };
 	},
 
-	/** corrects a hall's position for everyone (PDR 0003) and recomputes this day's trip */
+	/** an admin corrects a hall's position for everyone (PDR 0003); this day's trip is recomputed */
 	fixVenue: async ({ locals, params, request }) => {
 		const { user, db, row } = await dayOf(locals, params.date);
 		const f = await request.formData();
 		const venueId = Number(f.get('venueId'));
+		if (user.role !== 'admin') return fail(403, { venueError: adminOnly, venueId });
 		if (!row.day.games.some((g) => g.venue.id === venueId)) {
 			return fail(400, { venueError: 'Tahle hala k tomuto dni nepatří.', venueId });
 		}
@@ -317,6 +322,7 @@ export const actions: Actions = {
 	unfixVenue: async ({ locals, params, request }) => {
 		const { user, db, row } = await dayOf(locals, params.date);
 		const venueId = Number((await request.formData()).get('venueId'));
+		if (user.role !== 'admin') return fail(403, { venueError: adminOnly, venueId });
 		if (!row.day.games.some((g) => g.venue.id === venueId)) {
 			return fail(400, { venueError: 'Tahle hala k tomuto dni nepatří.', venueId });
 		}
