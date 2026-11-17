@@ -25,6 +25,15 @@ import {
 import { clearVenueFix, mapUrl, setVenueFix } from '#lib/server/travel/venue-fix.ts';
 import type { Actions, PageServerLoad } from './$types';
 
+/** stops the user adds: a colleague gets in or out, or I change cars at a colleague's */
+const defaultLabels = {
+	pickup: 'Vyzvednutí',
+	dropoff: 'Vysazení',
+	ride: 'Přesednutí',
+	drive: 'Přesednutí'
+} as const;
+const copyMarks = { pickup: '↑', dropoff: '↓', ride: '⇄', drive: '⇄' } as const;
+
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 async function dayOf(locals: App.Locals, date: string) {
@@ -64,13 +73,16 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		.limit(30);
 	const copySources = recent
 		.map((r) => ({ date: r.date, stops: parseStops(r.stops) }))
-		.filter((r) => r.stops.some((s) => s.kind === 'pickup' || s.kind === 'dropoff'))
+		.filter((r) => r.stops.some((s) => s.kind in copyMarks))
 		.slice(0, 8)
 		.map((r) => ({
 			date: r.date,
 			label: r.stops
-				.filter((s) => s.kind === 'pickup' || s.kind === 'dropoff')
-				.map((s) => `${s.kind === 'pickup' ? '↑' : '↓'} ${s.colleague || s.label}`)
+				.flatMap((s) =>
+					s.kind in copyMarks
+						? [`${copyMarks[s.kind as keyof typeof copyMarks]} ${s.colleague || s.label}`]
+						: []
+				)
 				.join(', ')
 		}));
 
@@ -178,11 +190,12 @@ export const actions: Actions = {
 			return fail(400, { error: 'Nejdřív si v profilu nastav bydliště.' });
 		}
 
-		// home and venues always come from the server; the client only adds pickups and drop-offs
+		// home and venues always come from the server; the client adds pickups, drop-offs and
+		// changes of car
 		const stops = withServerStops(
 			parsed.data.stops.map((s): TripStop =>
-				s.kind === 'pickup' || s.kind === 'dropoff'
-					? { ...s, label: s.label || (s.kind === 'pickup' ? 'Vyzvednutí' : 'Vysazení') }
+				s.kind in defaultLabels
+					? { ...s, label: s.label || defaultLabels[s.kind as keyof typeof defaultLabels] }
 					: s
 			),
 			row.day,
@@ -202,7 +215,7 @@ export const actions: Actions = {
 
 		if (parsed.data.savePlaces) {
 			for (const s of resolved) {
-				if ((s.kind !== 'pickup' && s.kind !== 'dropoff') || !s.colleague || !s.address) continue;
+				if (!(s.kind in defaultLabels) || !s.colleague || !s.address) continue;
 				if (s.lat == null || s.lon == null) continue;
 				const values = {
 					userId: user.id,

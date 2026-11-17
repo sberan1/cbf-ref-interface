@@ -344,6 +344,7 @@ export function dayAllowance(
 		date: day.date,
 		mode: trip.mode,
 		legs: trip.legs,
+		stops: trip.stops,
 		games: day.games,
 		ticketCost: trip.ticketCost,
 		extraCost: trip.extraCost,

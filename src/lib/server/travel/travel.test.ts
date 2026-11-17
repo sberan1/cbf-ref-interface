@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	computeDayAllowance,
+	drivingByLeg,
 	sameMunicipality,
 	passengersByLeg,
 	type DayGame,
@@ -95,9 +96,67 @@ describe('computeDayAllowance', () => {
 			legs: [km(10), km(40, 1), km(40, 1), km(10)],
 			games: [game()]
 		});
-		expect(a.km).toEqual({ alone: 20, shared: 80 });
+		expect(a.km).toEqual({ alone: 20, shared: 80, passenger: 0 });
 		expect(a.mileage).toBe(20 * 4.5 + 80 * 5);
 		expect(a.weekday).toBe(0);
+	});
+
+	it("pays mileage only for the legs I drive when I change to a colleague's car", () => {
+		// home → (I drive alone) → colleague's home → (his car) → hall → (his car) → his home → home
+		const stops = [
+			{ kind: 'home' as const },
+			{ kind: 'ride' as const },
+			{ kind: 'venue' as const },
+			{ kind: 'drive' as const },
+			{ kind: 'home' as const }
+		];
+		expect(drivingByLeg(stops, true)).toEqual([true, false, false, true]);
+		const a = computeDayAllowance({
+			date: '2026-10-17',
+			mode: 'car',
+			legs: [km(15), km(80), km(80), km(15)],
+			stops,
+			games: [game()]
+		});
+		expect(a.km).toEqual({ alone: 30, shared: 0, passenger: 160 });
+		expect(a.mileage).toBe(30 * 4.5);
+		// the meal allowance counts the whole trip
+		expect(a.minutes.driving).toBe(190);
+		expect(a.notes).toContain('Část cesty jako spolujezdec: cestovné za ni bere řidič.');
+	});
+
+	it('pays no mileage when a colleague drives from home, as before', () => {
+		const a = computeDayAllowance({
+			date: '2026-10-17',
+			mode: 'passenger',
+			// 2 h on the road + a game: over 5 h, so a meal allowance
+			legs: [km(40, 0, 60), km(40, 0, 60)],
+			stops: [{ kind: 'home' }, { kind: 'venue' }, { kind: 'home' }],
+			games: [game()]
+		});
+		expect(a.km).toEqual({ alone: 0, shared: 0, passenger: 80 });
+		expect(a.mileage).toBe(0);
+		expect(a.meal).toBeGreaterThan(0);
+		// trips stored without their stops still follow the mode
+		const legacy = computeDayAllowance({
+			date: '2026-10-17',
+			mode: 'passenger',
+			legs: [km(40), km(40)],
+			games: [game()]
+		});
+		expect(legacy.mileage).toBe(0);
+	});
+
+	it('pays from a change back into my car with colleagues picked up', () => {
+		const stops = [
+			{ kind: 'home' as const },
+			{ kind: 'drive' as const },
+			{ kind: 'pickup' as const },
+			{ kind: 'venue' as const },
+			{ kind: 'home' as const }
+		];
+		expect(drivingByLeg(stops, false)).toEqual([false, true, true, true]);
+		expect(passengersByLeg(stops)).toEqual([0, 0, 1, 1]);
 	});
 
 	it('uses 6.30 Kč/km with a colleague in NBL', () => {

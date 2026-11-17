@@ -14,7 +14,7 @@ import type { Actions, PageServerLoad } from './$types';
 
 const modeLabel = {
 	car: 'autem',
-	passenger: 'spolujezdec',
+	passenger: 'autem jako spolujezdec',
 	public: 'veřejná doprava',
 	none: 'bez cesty'
 };
@@ -46,6 +46,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		totals: totals(rows),
 		days: rows.map(({ day, trip, allowance }) => {
 			const pickups = trip?.stops.filter((s) => s.kind === 'pickup') ?? [];
+			const rides = trip?.stops.filter((s) => s.kind === 'ride') ?? [];
 			return {
 				date: day.date,
 				upcoming: day.date > today,
@@ -63,9 +64,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 							modeLabel[trip.mode],
 							pickups.length
 								? `s ${pickups.map((p) => p.colleague || 'kolegou').join(', ')}`
-								: trip.mode === 'car'
+								: trip.mode === 'car' && !rides.length
 									? 'sám'
-									: null
+									: null,
+							rides.length
+								? `· část jako spolujezdec (${rides.map((r) => r.colleague || 'kolega').join(', ')})`
+								: null
 						]
 							.filter(Boolean)
 							.join(' ')

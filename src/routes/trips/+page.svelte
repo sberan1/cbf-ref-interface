@@ -136,7 +136,7 @@
 									d.allowance.total
 								)}</span
 							>
-							{d.allowance.mode === 'car'
+							{d.allowance.km.alone + d.allowance.km.shared > 0
 								? `${formatNumber(d.allowance.km.alone + d.allowance.km.shared)} km · `
 								: ''}stravné {formatKc(d.allowance.meal)}{d.allowance.weekday
 								? ` · všední den ${formatKc(d.allowance.weekday)}`

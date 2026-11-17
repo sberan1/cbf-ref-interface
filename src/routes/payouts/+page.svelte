@@ -38,7 +38,7 @@
 		}
 		const t = d.trip;
 		if (!t) return out;
-		if (t.mode === 'car') {
+		if (t.kmAlone || t.kmShared) {
 			const parts = [
 				t.kmAlone ? `${formatNumber(t.kmAlone)} km × ${rate.format(t.rateAlone)}` : null,
 				t.kmShared
@@ -48,7 +48,9 @@
 			out.push({
 				key: 'travel',
 				label: 'Cestovné',
-				detail: parts.join(' + ') || null,
+				detail:
+					parts.join(' + ') +
+					(t.kmPassenger ? ` · ${formatNumber(t.kmPassenger)} km jako spolujezdec bere řidič` : ''),
 				amount: t.mileage
 			});
 		} else if (t.mode === 'public') {
@@ -57,7 +59,11 @@
 			out.push({
 				key: 'travel',
 				label: 'Cestovné',
-				detail: t.mode === 'passenger' ? 'spolujezdec, cestovné bere řidič' : 'bez cesty',
+				detail: t.kmPassenger
+					? 'spolujezdec, cestovné bere řidič'
+					: t.mode === 'none'
+						? 'bez cesty'
+						: 'bez ujetých km',
 				amount: 0
 			});
 		}
