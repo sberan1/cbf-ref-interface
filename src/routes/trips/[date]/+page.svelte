@@ -26,7 +26,10 @@
 				: null
 	});
 
-	let mode = $state<'car' | 'passenger' | 'public' | 'none'>('car');
+	// by car, I drive from home or a colleague drives me; the stored mode says which ('passenger')
+	let way = $state<'car' | 'public' | 'none'>('car');
+	let fromHome = $state<'me' | 'colleague'>('me');
+	const mode = $derived(way === 'car' ? (fromHome === 'me' ? 'car' : 'passenger') : way);
 	let stops = $state<EditStop[]>([]);
 	let ticketCost = $state('');
 	let extraCost = $state('');
@@ -37,35 +40,65 @@
 	// reset the editor whenever the server data changes (first load, after saving)
 	$effect.pre(() => {
 		stops = data.stops.map(toEdit);
-		mode = data.trip?.mode ?? 'car';
+		const stored = data.trip?.mode ?? 'car';
+		way = stored === 'passenger' ? 'car' : stored;
+		fromHome = stored === 'passenger' ? 'colleague' : 'me';
 		ticketCost = data.trip?.ticketCost?.toString() ?? '';
 		extraCost = data.trip?.extraCost?.toString() ?? '';
 		note = data.trip?.note ?? '';
 	});
 
 	const modes = [
-		{ key: 'car', label: 'Autem, řídil jsem', hint: 'cestovné 4,50 Kč/km, s kolegou 5 Kč/km' },
-		{ key: 'passenger', label: 'Autem jako spolujezdec', hint: 'cestovné bere řidič, ty stravné' },
+		{
+			key: 'car',
+			label: 'Autem',
+			hint: 'řídím: 4,50 Kč/km, s kolegou 5 Kč/km; jako spolujezdec cestovné bere řidič'
+		},
 		{ key: 'public', label: 'Veřejnou dopravou', hint: 'jízdenky podle dokladů' },
 		{ key: 'none', label: 'Bez cesty', hint: 'např. hala hned vedle' }
 	] as const;
 
+	type AddedKind = 'pickup' | 'dropoff' | 'ride' | 'drive';
+	const stopNames: Record<AddedKind, { label: string; title: string }> = {
+		pickup: { label: 'Vyzvednutí', title: '↑ Nabírám kolegu' },
+		dropoff: { label: 'Vysazení', title: '↓ Vysazuji kolegu' },
+		ride: { label: 'Přesednutí', title: '⇄ Přesedám ke kolegovi, dál jedu jako spolujezdec' },
+		drive: { label: 'Přesednutí', title: '⇄ Přesedám do svého auta, dál řídím' }
+	};
+
 	const firstVenue = $derived(stops.findIndex((s) => s.kind === 'venue'));
 
-	function add(kind: 'pickup' | 'dropoff') {
-		const colleague = data.colleagues[0] ?? '';
+	// who drives each leg and with how many colleagues, as the server counts it
+	const legStates = $derived.by(() => {
+		let driving = fromHome === 'me';
+		let inCar = 0;
+		return stops.slice(0, -1).map((s) => {
+			if (s.kind === 'ride') driving = false;
+			if (s.kind === 'drive') driving = true;
+			if (s.kind === 'pickup') inCar++;
+			if (s.kind === 'dropoff') inCar = Math.max(0, inCar - 1);
+			return !driving ? 'spolujezdec' : inCar > 0 ? 'řídím, s kolegou' : 'řídím sám';
+		});
+	});
+
+	function add(kind: AddedKind) {
+		// changing back into my car happens where I left it: at the colleague of the other change
+		const other = { ride: 'drive', drive: 'ride' }[kind as 'ride' | 'drive'];
+		const pair = other ? stops.find((s) => s.kind === other) : undefined;
+		const colleague = pair?.colleague ?? data.colleagues[0] ?? '';
 		const place = data.places.find((p) => p.label === colleague);
 		const stop = toEdit({
 			kind,
-			label: kind === 'pickup' ? 'Vyzvednutí' : 'Vysazení',
+			label: stopNames[kind].label,
 			colleague,
-			address: place?.address ?? '',
-			lat: place?.lat ?? null,
-			lon: place?.lon ?? null,
-			municipality: place?.municipality ?? null,
+			address: pair ? pair.address : (place?.address ?? ''),
+			lat: pair ? (pair.point?.lat ?? null) : (place?.lat ?? null),
+			lon: pair ? (pair.point?.lon ?? null) : (place?.lon ?? null),
+			municipality: pair ? (pair.point?.municipality ?? null) : (place?.municipality ?? null),
 			gameIds: null
 		});
-		const at = kind === 'pickup' ? Math.max(1, firstVenue) : stops.length - 1;
+		// getting in on the way there, getting out on the way back; reorder with the arrows
+		const at = kind === 'pickup' || kind === 'ride' ? Math.max(1, firstVenue) : stops.length - 1;
 		stops.splice(at, 0, stop);
 	}
 
@@ -120,17 +153,16 @@
 	} as const;
 
 	const a = $derived(data.allowance);
-	const legRows = $derived(
-		(data.trip?.legs ?? []).map((leg, i) => ({
-			...leg,
-			from: data.stops[i]?.colleague
-				? `${data.stops[i].label} (${data.stops[i].colleague})`
-				: data.stops[i]?.label,
-			to: data.stops[i + 1]?.colleague
-				? `${data.stops[i + 1].label} (${data.stops[i + 1].colleague})`
-				: data.stops[i + 1]?.label
-		}))
-	);
+	const stopName = (s: Stop | undefined) =>
+		s?.colleague ? `${s.label} (${s.colleague})` : s?.label;
+	const legRows = $derived.by(() => {
+		let driving = data.trip?.mode !== 'passenger';
+		return (data.trip?.legs ?? []).map((leg, i) => {
+			if (data.stops[i]?.kind === 'ride') driving = false;
+			if (data.stops[i]?.kind === 'drive') driving = true;
+			return { ...leg, driving, from: stopName(data.stops[i]), to: stopName(data.stops[i + 1]) };
+		});
+	});
 	const enhanced = () => {
 		busy = true;
 		return async ({ update }: { update: (opts?: { reset?: boolean }) => Promise<void> }) => {
@@ -187,14 +219,28 @@
 							<label
 								class={[
 									'flex cursor-pointer gap-2 rounded-md border px-3 py-2 text-sm',
-									mode === m.key ? 'border-accent' : 'border-line'
+									way === m.key ? 'border-accent' : 'border-line'
 								]}
 							>
-								<input type="radio" name="mode" value={m.key} bind:group={mode} class="mt-0.5" />
+								<input type="radio" name="way" value={m.key} bind:group={way} class="mt-0.5" />
 								<span>{m.label}<span class="block text-xs text-muted">{m.hint}</span></span>
 							</label>
 						{/each}
 					</div>
+					<input type="hidden" name="mode" value={mode} />
+					{#if way === 'car'}
+						<div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+							<span class="text-xs text-muted">Z domova:</span>
+							<label class="flex items-center gap-1.5">
+								<input type="radio" name="fromHome" value="me" bind:group={fromHome} />
+								řídím já
+							</label>
+							<label class="flex items-center gap-1.5">
+								<input type="radio" name="fromHome" value="colleague" bind:group={fromHome} />
+								veze mě kolega
+							</label>
+						</div>
+					{/if}
 				</fieldset>
 
 				{#if mode !== 'none'}
@@ -203,6 +249,11 @@
 						<p class="mt-1 text-xs text-muted">
 							Haly bereme ze zápasů. Přidej, kde jsi kolegu nabral a kde vysadil; mezi nabráním a
 							vysazením se počítá sazba s kolegou.
+							{#if way === 'car'}
+								Když u kolegy přesedáš do jeho auta, přidej „Přesedám ke kolegovi“ a na zpáteční
+								cestě „Přesedám do svého auta“: cestovné dostaneš jen za úseky, které řídíš, a za
+								zbytek ho bere kolega.
+							{/if}
 						</p>
 						<ol class="mt-3 space-y-2">
 							{#each stops as s, i (s.key)}
@@ -215,7 +266,7 @@
 									{:else}
 										<div class="flex flex-wrap items-center justify-between gap-2">
 											<p class="text-sm font-medium">
-												{s.kind === 'pickup' ? '↑ Nabírám kolegu' : '↓ Vysazuji kolegu'}
+												{stopNames[s.kind as AddedKind]?.title ?? s.label}
 											</p>
 											<div class="flex gap-1 text-xs">
 												<button
@@ -271,6 +322,11 @@
 										</div>
 									{/if}
 								</li>
+								{#if way === 'car' && i < stops.length - 1}
+									<li class="pl-3 text-xs text-muted" aria-label="Další úsek">
+										↓ {legStates[i]}
+									</li>
+								{/if}
 							{/each}
 						</ol>
 						<datalist id="colleagues">
@@ -289,6 +345,20 @@
 								class="rounded-md border border-line px-3 py-1.5 text-sm hover:border-accent"
 								>+ Vysazuji kolegu</button
 							>
+							{#if way === 'car'}
+								<button
+									type="button"
+									onclick={() => add('ride')}
+									class="rounded-md border border-line px-3 py-1.5 text-sm hover:border-accent"
+									>+ Přesedám ke kolegovi</button
+								>
+								<button
+									type="button"
+									onclick={() => add('drive')}
+									class="rounded-md border border-line px-3 py-1.5 text-sm hover:border-accent"
+									>+ Přesedám do svého auta</button
+								>
+							{/if}
 						</div>
 						<label class="mt-3 flex items-center gap-2 text-xs text-ink-2">
 							<input type="checkbox" bind:checked={savePlaces} />
@@ -456,13 +526,24 @@
 							: 'Potvrzeno.'}
 					</p>
 					<dl class="mt-3 space-y-2 text-sm tabular-nums">
-						{#if a.mode === 'car'}
-							<div class="flex justify-between gap-3">
-								<dt class="text-ink-2">
-									Sám {formatNumber(a.km.alone)} km × {formatNumber(a.rates.alone)} Kč
-								</dt>
-								<dd>{formatKc(Math.round(a.km.alone * a.rates.alone))}</dd>
-							</div>
+						{#if a.mode === 'car' || a.mode === 'passenger'}
+							{#if a.km.alone > 0 || a.km.passenger === 0}
+								<div class="flex justify-between gap-3">
+									<dt class="text-ink-2">
+										Sám {formatNumber(a.km.alone)} km × {formatNumber(a.rates.alone)} Kč
+									</dt>
+									<dd>{formatKc(Math.round(a.km.alone * a.rates.alone))}</dd>
+								</div>
+							{/if}
+							{#if a.km.passenger > 0}
+								<div class="flex justify-between gap-3">
+									<dt class="text-ink-2">
+										Spolujezdec {formatNumber(a.km.passenger)} km
+										<span class="block text-xs text-muted">cestovné bere řidič</span>
+									</dt>
+									<dd>{formatKc(0)}</dd>
+								</div>
+							{/if}
 							{#if a.km.shared > 0}
 								<div class="flex justify-between gap-3">
 									<dt class="text-ink-2">
@@ -526,7 +607,12 @@
 					<ul class="mt-2 space-y-1.5 text-xs">
 						{#each legRows as l, i (i)}
 							<li class="flex justify-between gap-3">
-								<span class="text-ink-2">{l.from} → {l.to}{l.passengers ? ' · s kolegou' : ''}</span
+								<span class="text-ink-2"
+									>{l.from} → {l.to}{!l.driving
+										? ' · spolujezdec'
+										: l.passengers
+											? ' · s kolegou'
+											: ''}</span
 								>
 								<span class="shrink-0 tabular-nums"
 									>{l.approximate ? '≈ ' : ''}{formatNumber(Math.round(l.meters / 100) / 10)} km · {formatDuration(

@@ -25,6 +25,8 @@ export interface PayoutTrip {
 	confirmed: boolean;
 	kmAlone: number;
 	kmShared: number;
+	/** ridden in a colleague's car: no mileage, the driver gets it */
+	kmPassenger: number;
 	rateAlone: number;
 	rateShared: number;
 	mileage: number;
@@ -93,6 +95,7 @@ export function payoutDays(
 				confirmed: trip.status === 'confirmed',
 				kmAlone: a.km.alone,
 				kmShared: a.km.shared,
+				kmPassenger: a.km.passenger,
 				rateAlone: a.rates.alone,
 				rateShared: a.rates.shared,
 				mileage: a.mileage,

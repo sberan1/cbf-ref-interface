@@ -9,17 +9,27 @@ import { foldText } from '../referee/text';
 import { holidayName, isWeekend } from './holidays';
 import { MINUTES_PER_GAME, mealAmount, mealFor, mileageFor } from './rates';
 
+/**
+ * `car`: by car, driving from home; `passenger`: by car, a colleague drives from home. Changing
+ * cars on the way (`ride` / `drive` stops) switches who drives from there on.
+ */
 export const tripModes = ['car', 'passenger', 'public', 'none'] as const;
 export type TripMode = (typeof tripModes)[number];
 
+/**
+ * home and venues come from the server; pickup / dropoff: a colleague gets in or out of my car;
+ * ride: I leave my car at a colleague's and ride in his; drive: I am back in my car.
+ */
+export const tripStopKinds = ['home', 'venue', 'pickup', 'dropoff', 'ride', 'drive'] as const;
+
 export const tripStopSchema = z.object({
-	kind: z.enum(['home', 'venue', 'pickup', 'dropoff']),
+	kind: z.enum(tripStopKinds),
 	label: z.string().max(200),
 	address: z.string().max(300).nullish(),
 	lat: z.number().min(-90).max(90).nullish(),
 	lon: z.number().min(-180).max(180).nullish(),
 	municipality: z.string().max(120).nullish(),
-	/** pickup / drop-off: who */
+	/** pickup / drop-off / change of car: who */
 	colleague: z.string().max(120).nullish(),
 	/** venue stops: the games played there */
 	gameIds: z.array(z.number().int()).max(50).nullish()
@@ -46,6 +56,18 @@ export function passengersByLeg(stops: Pick<TripStop, 'kind'>[]): number[] {
 	return out;
 }
 
+/** Whether I drive on each leg `stops[i] → stops[i + 1]`: from the start, then by changes of car. */
+export function drivingByLeg(stops: Pick<TripStop, 'kind'>[], fromHome: boolean): boolean[] {
+	const out: boolean[] = [];
+	let driving = fromHome;
+	for (let i = 0; i < stops.length - 1; i++) {
+		if (stops[i].kind === 'ride') driving = false;
+		if (stops[i].kind === 'drive') driving = true;
+		out.push(driving);
+	}
+	return out;
+}
+
 export interface DayGame extends CompetitionInfo {
 	gameId: number;
 	role: string;
@@ -54,7 +76,8 @@ export interface DayGame extends CompetitionInfo {
 
 export interface DayAllowance {
 	mode: TripMode;
-	km: { alone: number; shared: number };
+	/** driven alone / with colleagues, and ridden in a colleague's car (paid to the driver) */
+	km: { alone: number; shared: number; passenger: number };
 	rates: { alone: number; shared: number };
 	mileage: number;
 	tickets: number;
@@ -107,6 +130,8 @@ export function computeDayAllowance(input: {
 	date: string;
 	mode: TripMode;
 	legs: TripLeg[];
+	/** the stops the legs connect, for changes of car; without them the mode decides who drives */
+	stops?: Pick<TripStop, 'kind'>[];
 	games: DayGame[];
 	ticketCost?: number | null;
 	extraCost?: number | null;
@@ -125,16 +150,24 @@ export function computeDayAllowance(input: {
 		estimated = true;
 		notes.push('Část trasy je odhadnutá vzdušnou čarou (mapy nebyly dostupné).');
 	}
-	const kmAlone = round1(
-		legs.filter((l) => l.passengers === 0).reduce((s, l) => s + l.meters, 0) / 1000
-	);
-	const kmShared = round1(
-		legs.filter((l) => l.passengers > 0).reduce((s, l) => s + l.meters, 0) / 1000
-	);
+	// mileage is paid to whoever drives: legs in a colleague's car are his
+	const byCar = mode === 'car' || mode === 'passenger';
+	const driving =
+		byCar && input.stops?.length === legs.length + 1
+			? drivingByLeg(input.stops, mode === 'car')
+			: legs.map(() => mode === 'car');
+	const km = (pick: (l: TripLeg, i: number) => boolean) =>
+		round1(legs.filter(pick).reduce((s, l) => s + l.meters, 0) / 1000);
+	const kmAlone = km((l, i) => driving[i] && l.passengers === 0);
+	const kmShared = km((l, i) => driving[i] && l.passengers > 0);
+	const kmPassenger = byCar ? km((_, i) => !driving[i]) : 0;
+	if (kmPassenger > 0 && kmAlone + kmShared > 0) {
+		notes.push('Část cesty jako spolujezdec: cestovné za ni bere řidič.');
+	}
 	const top = games.some(isTopCompetition);
 	const rateAlone = rates?.alone ?? 0;
 	const rateShared = (top ? rates?.sharedTop : rates?.shared) ?? 0;
-	const mileage = mode === 'car' ? Math.round(kmAlone * rateAlone + kmShared * rateShared) : 0;
+	const mileage = Math.round(kmAlone * rateAlone + kmShared * rateShared);
 	const tickets = mode === 'public' ? Math.max(0, input.ticketCost ?? 0) : 0;
 	const extra = Math.max(0, input.extraCost ?? 0);
 
@@ -174,7 +207,7 @@ export function computeDayAllowance(input: {
 	const travel = mileage + tickets + extra;
 	return {
 		mode,
-		km: { alone: kmAlone, shared: kmShared },
+		km: { alone: kmAlone, shared: kmShared, passenger: kmPassenger },
 		rates: { alone: rateAlone, shared: rateShared },
 		mileage,
 		tickets,

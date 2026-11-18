@@ -63,7 +63,8 @@ export function totals(rows: DayRow[]): AllowanceTotals {
 		if (!r.allowance || !r.trip) continue;
 		t.filled++;
 		if (r.trip.status === 'confirmed') t.confirmed++;
-		t.km += r.allowance.mode === 'car' ? r.allowance.km.alone + r.allowance.km.shared : 0;
+		// driven km only: in a colleague's car he gets the mileage
+		t.km += r.allowance.km.alone + r.allowance.km.shared;
 		t.travel += r.allowance.travel;
 		t.meal += r.allowance.meal;
 		t.weekday += r.allowance.weekday;

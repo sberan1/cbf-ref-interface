@@ -48,7 +48,7 @@ const fee = (amount: number | null): GameFee =>
 
 const allowance: DayAllowance = {
 	mode: 'car',
-	km: { alone: 30, shared: 12 },
+	km: { alone: 30, shared: 12, passenger: 0 },
 	rates: { alone: 4.5, shared: 5 },
 	mileage: 195,
 	tickets: 0,
