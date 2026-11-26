@@ -5,6 +5,13 @@ import type { TaskContext } from './tasks';
 const HOUR = 3600_000;
 const DAY = 24 * HOUR;
 
+/**
+ * How far ahead game details are refreshed often (the `window` job and the 12 h cadence below).
+ * ČBF publishes delegations up to about three weeks before a game; further out they are checked
+ * weekly.
+ */
+export const WINDOW_DAYS_AHEAD = 21;
+
 /** Default refresh interval of current-season resources (ADR 0005). Tunable defaults. */
 const currentSeasonTtl: Record<EndpointKey, number> = {
 	'v2.seasonList': DAY,
@@ -50,7 +57,7 @@ export function gameDetailNextDueAt(game: ParsedGame, now: Date): Date | null {
 	const hasResult = game.homeScore !== null && game.awayScore !== null;
 	const final = hasResult && (game.resultChecked !== false || start < t - 14 * DAY);
 	if (start < t - 3 * DAY) return final ? null : new Date(t + 3 * DAY);
-	// same cadence as the window job (CBF_WINDOW_MAX_AGE_HOURS default)
-	if (start <= t + 14 * DAY) return new Date(t + 12 * HOUR);
+	// same span and cadence as the window job (CBF_WINDOW_MAX_AGE_HOURS default)
+	if (start <= t + WINDOW_DAYS_AHEAD * DAY) return new Date(t + 12 * HOUR);
 	return new Date(t + 7 * DAY);
 }

@@ -37,7 +37,7 @@ const HELP = `ČBF sync CLI
   bootstrap [--from Y] [--to Y] [--areas 0-14] [--genders 0,1] [--force]
                                         enqueue full history (default: current + CBF_BOOTSTRAP_SEASONS previous seasons)
   daily                                 enqueue refresh of the current season structure and games
-  window                                enqueue game details in the −3/+14 day window
+  window                                enqueue game details in the −3/+21 day window
   scheduler                             long-running: daily at CBF_DAILY_AT (Prague), window every
                                         CBF_WINDOW_EVERY_HOURS (replaces cron in Docker)
   fetch <endpoint> [name=value …] [--recurse] [--force]
