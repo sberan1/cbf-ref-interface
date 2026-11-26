@@ -54,7 +54,7 @@ npm run cbf -- discover                 # nejdřív: vzorky endpointů do discov
 npm run cbf:worker                      # consumer fronty (fetch + normalize), Ctrl+C = čisté ukončení
 npm run cbf -- bootstrap                # posledních 20 sezón + aktuální, nejnovější první
 npm run cbf -- daily                    # obnova aktuální sezóny (1× denně)
-npm run cbf -- window                   # detaily zápasů v okně −3/+14 dní (po pár hodinách)
+npm run cbf -- window                   # detaily zápasů v okně −3/+21 dní (po pár hodinách)
 npm run cbf -- scheduler                # trvale běžící plánovač daily + window (místo cronu)
 npm run cbf -- fetch v2.game game=273093 --force
 npm run cbf -- renormalize --endpoint v2.games --force   # přepočet z raw dat, bez HTTP
