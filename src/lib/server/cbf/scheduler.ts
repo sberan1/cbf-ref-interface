@@ -2,6 +2,7 @@
 import { and, between, eq, isNotNull } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client';
 import { competition, game } from '../db/schema';
+import { WINDOW_DAYS_AHEAD } from './refresh-policy';
 import type { NewFetchTask, SyncReason, TaskSink } from './tasks';
 
 export interface CrawlScope {
@@ -64,7 +65,7 @@ export function dailyTasks(currentYear: number, scope: CrawlScope) {
 	return [seasonListTask('daily'), ...seasonTasks(currentYear, scope, 'daily')];
 }
 
-/** Game details in the −3 / +14 day window around now (delegations change there). */
+/** Game details in the −3 / +21 day window around now (delegations change there). */
 export async function windowTasks(
 	db: DbOrTx,
 	opts: { now: Date; currentYear: number; maxAgeSec: number }
@@ -85,7 +86,7 @@ export async function windowTasks(
 				between(
 					game.startsAt,
 					new Date(opts.now.getTime() - 3 * day),
-					new Date(opts.now.getTime() + 14 * day)
+					new Date(opts.now.getTime() + WINDOW_DAYS_AHEAD * day)
 				)
 			)
 		);

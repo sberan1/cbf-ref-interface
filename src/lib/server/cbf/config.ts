@@ -37,7 +37,7 @@ const envSchema = z.object({
 			.regex(/^([01]\d|2[0-3]):[0-5]\d$/)
 			.default('04:30')
 	),
-	/** `scheduler`: how often to enqueue the −3/+14 day game window. */
+	/** `scheduler`: how often to enqueue the −3/+21 day game window (WINDOW_DAYS_AHEAD). */
 	CBF_WINDOW_EVERY_HOURS: intFromEnv(6),
 	CBF_NORMALIZE_PREFETCH: intFromEnv(4)
 });

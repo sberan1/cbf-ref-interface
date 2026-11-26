@@ -135,6 +135,13 @@ describe('scheduling', () => {
 		expect(gameDetailNextDueAt(game('2026-10-20T16:00:00Z', false), now)?.getTime()).toBe(
 			now.getTime() + 12 * 3600_000
 		);
+		// delegations are published up to three weeks ahead: 20 days out is still checked twice a day
+		expect(gameDetailNextDueAt(game('2026-11-03T16:00:00Z', false), now)?.getTime()).toBe(
+			now.getTime() + 12 * 3600_000
+		);
+		expect(gameDetailNextDueAt(game('2026-11-05T16:00:00Z', false), now)?.getTime()).toBe(
+			now.getTime() + 7 * 24 * 3600_000
+		);
 		expect(gameDetailNextDueAt(game('2026-12-20T16:00:00Z', false), now)?.getTime()).toBe(
 			now.getTime() + 7 * 24 * 3600_000
 		);
